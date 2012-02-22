@@ -20,6 +20,26 @@
 #include <linux/interrupt.h>
 #include <linux/wakelock.h>
 #include <mach/gpio.h>
+#include <linux/irq.h>	//hsil
+
+extern int board_hw_revision;
+
+#if defined(CONFIG_MACH_CALLISTO) || defined(CONFIG_MACH_CRONIN)
+// hsil
+#define GPIO_SLIDE	36
+#define GPIO_KBR5	37
+#endif
+
+#if defined(CONFIG_MACH_EUROPA)
+int wlan_debug_step;
+EXPORT_SYMBOL(wlan_debug_step);
+#endif
+
+#if defined(CONFIG_MACH_EUROPA) || defined(CONFIG_MACH_CALLISTO) || defined(CONFIG_MACH_CRONIN)
+int key_pressed;
+extern int power_off_done;
+#endif
+
 
 struct gpio_kp {
 	struct gpio_event_input_devs *input_devs;
@@ -113,7 +133,11 @@ static void report_key(struct gpio_kp *kp, int key_index, int out, int in)
 
 	if (pressed != test_bit(keycode, kp->input_devs->dev[dev]->key)) {
 		if (keycode == KEY_RESERVED) {
+#if defined(CONFIG_MACH_EUROPA)
+			if ((mi->flags & GPIOKPF_PRINT_UNMAPPED_KEYS) && (board_hw_revision < 4))
+#else
 			if (mi->flags & GPIOKPF_PRINT_UNMAPPED_KEYS)
+#endif			
 				pr_info("gpiomatrix: unmapped key, %d-%d "
 					"(%d-%d) changed to %d\n",
 					out, in, mi->output_gpios[out],
@@ -124,7 +148,25 @@ static void report_key(struct gpio_kp *kp, int key_index, int out, int in)
 					"changed to %d\n", keycode,
 					out, in, mi->output_gpios[out],
 					mi->input_gpios[in], pressed);
+#if defined(CONFIG_MACH_EUROPA) || defined(CONFIG_MACH_CALLISTO) || defined(CONFIG_MACH_CRONIN)
+			if(!power_off_done) {
+				input_report_key(kp->input_devs->dev[dev], keycode, pressed);
+#if defined(CONFIG_MACH_CALLISTO) || defined(CONFIG_MACH_CRONIN)
+				printk("key event (keycode:%d, pressed:%d)\n", keycode, pressed);	//sec: sm.kim
+#else
+				printk("key event (keycode:%d, pressed:%d), wlan_debug_step=%d\n", 
+						keycode, pressed, wlan_debug_step);	// sec: sm.kim
+#endif
+				key_pressed = pressed;
+			} else {
+				printk("power_off_done : %d\n", power_off_done);
+			}
+#else
 			input_report_key(kp->input_devs->dev[dev], keycode, pressed);
+//			printk("key event (keycode:%d, pressed:%d), wlan_debug_step=%d\n", 
+//					keycode, pressed, wlan_debug_step);	// sec: sm.kim
+			printk("key event (keycode:%d, pressed:%d)\n", keycode, pressed);	//sec: sm.kim
+#endif
 		}
 	}
 }
@@ -233,6 +275,26 @@ static irqreturn_t gpio_keypad_irq_handler(int irq_in, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+#if defined(CONFIG_MACH_CALLISTO) || defined(CONFIG_MACH_CRONIN)
+// hsil
+static irqreturn_t slide_int_handler(int irq, void *dev_id)
+{
+	struct gpio_kp *kp = dev_id;
+	int state;
+	struct gpio_event_matrix_info *mi = kp->keypad_info;
+	unsigned short keyentry = mi->keymap[0];
+	unsigned short dev = keyentry >> MATRIX_CODE_BITS;
+			 
+	state = gpio_get_value(GPIO_SLIDE) ^ 1;
+//	printk("[SLIDE] changed Slide state (%d)\n", state);
+
+	input_report_switch(kp->input_devs->dev[dev], SW_LID, state);
+	input_sync(kp->input_devs->dev[dev]);
+					                 
+	return IRQ_HANDLED;
+}
+#endif
+
 static int gpio_keypad_request_irqs(struct gpio_kp *kp)
 {
 	int i;
@@ -274,6 +336,24 @@ static int gpio_keypad_request_irqs(struct gpio_kp *kp)
 		}
 		disable_irq(irq);
 	}
+	
+
+#if defined(CONFIG_MACH_CALLISTO) || defined(CONFIG_MACH_CRONIN)
+	// hsil
+	err = set_irq_wake(gpio_to_irq(GPIO_KBR5), 1);	// hsil
+
+	set_irq_type(gpio_to_irq(GPIO_SLIDE), IRQ_TYPE_EDGE_BOTH);
+	err = request_irq(gpio_to_irq(GPIO_SLIDE), slide_int_handler, IRQF_DISABLED, "slide_kp", kp);
+	if (err)
+	{
+		printk("[SLIDE] request_irq failed for slide\n");
+		goto err_request_irq_failed;
+	}
+	
+	err = set_irq_wake(gpio_to_irq(GPIO_SLIDE), 1);
+	if (err) 
+		printk("[SLIDE] register wakeup source failed\n");
+#endif
 	return 0;
 
 	for (i = mi->noutputs - 1; i >= 0; i--) {
@@ -308,6 +388,25 @@ int gpio_event_matrix_func(struct gpio_event_input_devs *input_devs,
 			pr_err("gpiomatrix: Incomplete pdata\n");
 			goto err_invalid_platform_data;
 		}
+		printk("[%s:%d] hw rev = %d\n", __func__, __LINE__, board_hw_revision);
+
+#if defined(CONFIG_MACH_EUROPA)
+		if(board_hw_revision >= 3)
+		{
+			mi->keymap[(0)*mi->ninputs + (1)] = KEY_RESERVED;
+			mi->keymap[(3)*mi->ninputs + (1)] = KEY_VOLUMEDOWN;
+			mi->keymap[(3)*mi->ninputs + (4)] = KEY_VOLUMEUP;
+
+			if(board_hw_revision >= 4)
+			{
+				mi->input_gpios[4] = 76;
+			}
+		}
+#endif
+#if defined(CONFIG_MACH_CALLISTO) || defined(CONFIG_MACH_CRONIN)
+		// hsil
+		input_set_capability(input_devs->dev[0], EV_SW, SW_LID);
+#endif
 		key_count = mi->ninputs * mi->noutputs;
 
 		*data = kp = kzalloc(sizeof(*kp) + sizeof(kp->keys_pressed[0]) *

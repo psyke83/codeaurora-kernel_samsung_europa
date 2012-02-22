@@ -938,7 +938,10 @@ static void handle_endpoint(struct usb_info *ui, unsigned bit)
 		req->busy = 0;
 		req->live = 0;
 		if (req->dead)
+		{
 			do_free_req(ui, req);
+			break;
+		}
 
 		if (req->req.complete) {
 			spin_unlock_irqrestore(&ui->lock, flags);
@@ -994,7 +997,10 @@ static void flush_endpoint_sw(struct msm_endpoint *ept)
 			spin_lock_irqsave(&ui->lock, flags);
 		}
 		if (req->dead)
+		{
 			do_free_req(ui, req);
+			break;
+		}
 		req = req->next;
 	}
 	spin_unlock_irqrestore(&ui->lock, flags);
@@ -1100,8 +1106,8 @@ static irqreturn_t usb_interrupt(int irq, void *data)
 		ui->usb_state = USB_STATE_SUSPENDED;
 		ui->flags = USB_FLAG_SUSPEND;
 		spin_unlock_irqrestore(&ui->lock, flags);
-
-		ui->driver->suspend(&ui->gadget);
+		if (ui->driver)
+		    ui->driver->suspend(&ui->gadget);
 		schedule_work(&ui->work);
 	}
 
@@ -1475,8 +1481,9 @@ void msm_hsusb_set_vbus_state(int online)
 	struct usb_info *ui = the_usb_info;
 
 	if (!ui) {
-		dev_err(&ui->pdev->dev, "msm_hsusb_set_vbus_state called"
-			" before driver initialized\n");
+//		dev_err(&ui->pdev->dev, "msm_hsusb_set_vbus_state called"
+//			" before driver initialized\n");
+		printk("%s :msm_hsusb_set_vbus_state called before driver initialized\n",__func__);
 		return;
 	}
 
@@ -2267,11 +2274,6 @@ int usb_gadget_unregister_driver(struct usb_gadget_driver *driver)
 		return -EINVAL;
 
 	msm72k_pullup_internal(&dev->gadget, 0);
-	if (dev->irq) {
-		free_irq(dev->irq, dev);
-		dev->irq = 0;
-	}
-
 	dev->state = USB_STATE_IDLE;
 	atomic_set(&dev->configured, 0);
 	switch_set_state(&dev->sdev, 0);

@@ -51,6 +51,7 @@
 #include "timer.h"
 #include "pm.h"
 #include "spm.h"
+#include "proc_comm.h"
 
 /******************************************************************************
  * Debug Definitions
@@ -336,6 +337,7 @@ mode_sysfs_add_cleanup:
 		kfree(msm_pm_mode_attr_group[i]);
 		kobject_put(msm_pm_mode_kobjs[i]);
 	}
+
 
 	return ret;
 }
@@ -1675,19 +1677,44 @@ static struct platform_suspend_ops msm_pm_ops = {
 
 static uint32_t restart_reason = 0x776655AA;
 
+#if defined(CONFIG_MACH_EUROPA) || defined(CONFIG_MACH_CALLISTO) || defined(CONFIG_MACH_CRONIN)
+struct smem_info {
+	    unsigned int info;
+};
+ 
+extern struct smem_info *smem_flag;
+extern void request_phone_power_off_reset(int flag);
+int power_off_done;
+int (*set_recovery_mode)(void);
+EXPORT_SYMBOL(set_recovery_mode);
+#endif
+
 static void msm_pm_power_off(void)
 {
 	msm_rpcrouter_close();
+#if !defined(CONFIG_MACH_EUROPA) && !defined(CONFIG_MACH_CALLISTO) && !defined(CONFIG_MACH_CRONIN)
 	msm_proc_comm(PCOM_POWER_DOWN, 0, 0);
+#else
+	smem_flag->info = 0x0;
+	printk("request_phone_power_off\n");
+	request_phone_power_off_reset(1);
+	power_off_done = 1;
+	printk("Do Nothing!!\n");
+#endif
 	for (;;)
 		;
 }
 
-static void msm_pm_restart(char str, const char *cmd)
+
+static void msm_pm_restart(char str)
 {
 	msm_rpcrouter_close();
+#if defined(CONFIG_MACH_EUROPA) || defined(CONFIG_MACH_CALLISTO) || defined(CONFIG_MACH_CRONIN)
+	smem_flag->info = 0x0;
+#endif
+	printk("send PCOM_RESET_CHIP\n");
 	msm_proc_comm(PCOM_RESET_CHIP, &restart_reason, 0);
-
+	printk("Do Nothing!!\n");
 	for (;;)
 		;
 }
@@ -1700,7 +1727,12 @@ static int msm_reboot_call
 		if (!strcmp(cmd, "bootloader")) {
 			restart_reason = 0x77665500;
 		} else if (!strcmp(cmd, "recovery")) {
+#if defined(CONFIG_MACH_EUROPA) || defined(CONFIG_MACH_CALLISTO) || defined(CONFIG_MACH_CRONIN)
+			set_recovery_mode();
+#endif
 			restart_reason = 0x77665502;
+		} else if (!strcmp(cmd, "download")) {
+			restart_reason = 0x776655FF;
 		} else if (!strcmp(cmd, "eraseflash")) {
 			restart_reason = 0x776655EF;
 		} else if (!strncmp(cmd, "oem-", 4)) {
@@ -1735,6 +1767,7 @@ static int __init msm_pm_init(void)
 	struct proc_dir_entry *d_entry;
 #endif
 	int ret;
+	int id = 0;
 
 	pm_power_off = msm_pm_power_off;
 	arm_pm_restart = msm_pm_restart;
@@ -1798,6 +1831,8 @@ static int __init msm_pm_init(void)
 		d_entry->data = NULL;
 	}
 #endif
+
+	msm_proc_comm(PCOM_CUSTOMER_CMD3, &id, 0);
 
 	return 0;
 }

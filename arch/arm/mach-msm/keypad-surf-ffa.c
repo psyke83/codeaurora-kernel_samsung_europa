@@ -37,6 +37,21 @@
  41: KYPD_MEMO
 */
 
+#if defined(CONFIG_MACH_EUROPA)
+//sec: sm.kim
+static unsigned int keypad_row_gpios[] = { 35, 34, 33, 32, 31 };
+static unsigned int keypad_col_gpios[] = { 42, 41, 40, 39, 38 };
+#endif
+
+#if defined(CONFIG_MACH_CALLISTO) || defined(CONFIG_MACH_CRONIN)
+	static unsigned int keypad_row_gpios[] = { 35, 34, 33}; /* GPIO_NUM for KBC(0) ~ KBC(7) */
+#if (CONFIG_BOARD_REVISION < 0x03)
+	static unsigned int keypad_col_gpios[] = { 42, 41, 40, 39, 38, 37, 76 };          /* GPIO_NUM for KBR(0) ~ KBR(5) */
+#else
+	static unsigned int keypad_col_gpios[] = { 42, 41, 40};          /* GPIO_NUM for KBR(0) ~ KBR(5) */
+#endif
+#endif
+#if 0
 static unsigned int keypad_row_gpios[] = {
 	31, 32, 33, 34, 35, 41
 #if SCAN_FUNCTION_KEYS
@@ -45,6 +60,7 @@ static unsigned int keypad_row_gpios[] = {
 };
 
 static unsigned int keypad_col_gpios[] = { 36, 37, 38, 39, 40 };
+#endif
 
 static unsigned int keypad_row_gpios_8k_ffa[] = {31, 32, 33, 34, 35, 36};
 static unsigned int keypad_col_gpios_8k_ffa[] = {38, 39, 40, 41, 42};
@@ -53,55 +69,47 @@ static unsigned int keypad_col_gpios_8k_ffa[] = {38, 39, 40, 41, 42};
 #define FFA_8K_KEYMAP_INDEX(row, col) ((row)* \
 				ARRAY_SIZE(keypad_col_gpios_8k_ffa) + (col))
 
-static const unsigned short keypad_keymap_surf[ARRAY_SIZE(keypad_col_gpios) *
+static unsigned short keypad_keymap_surf[ARRAY_SIZE(keypad_col_gpios) *
 					  ARRAY_SIZE(keypad_row_gpios)] = {
-	[KEYMAP_INDEX(0, 0)] = KEY_5,
-	[KEYMAP_INDEX(0, 1)] = KEY_9,
-	[KEYMAP_INDEX(0, 2)] = 229,            /* SOFT1 */
-	[KEYMAP_INDEX(0, 3)] = KEY_6,
-	[KEYMAP_INDEX(0, 4)] = KEY_LEFT,
+#if defined(CONFIG_MACH_CRONIN)
+	// BEGIN Cronin KeyMap. 
+	[KEYMAP_INDEX(0, 0)] = KEY_MENU,  // KBC , KBR  
+	[KEYMAP_INDEX(0, 1)] = KEY_BACK,
+	[KEYMAP_INDEX(0, 2)] = KEY_HOME,	// KEY_SHIFT, 
 
-	[KEYMAP_INDEX(1, 0)] = KEY_0,
-	[KEYMAP_INDEX(1, 1)] = KEY_RIGHT,
-	[KEYMAP_INDEX(1, 2)] = KEY_1,
-	[KEYMAP_INDEX(1, 3)] = 228,           /* KEY_SHARP */
-	[KEYMAP_INDEX(1, 4)] = KEY_SEND,
+	[KEYMAP_INDEX(1, 0)] = KEY_MENU,  // KBC(1), KBR  
+	[KEYMAP_INDEX(1, 1)] = KEY_S,
+	[KEYMAP_INDEX(1, 2)] = KEY_Z,
 
-	[KEYMAP_INDEX(2, 0)] = KEY_VOLUMEUP,
-	[KEYMAP_INDEX(2, 1)] = KEY_HOME,      /* FA   */
-	[KEYMAP_INDEX(2, 2)] = KEY_F8,        /* QCHT */
-	[KEYMAP_INDEX(2, 3)] = KEY_F6,        /* R+   */
-	[KEYMAP_INDEX(2, 4)] = KEY_F7,        /* R-   */
+	[KEYMAP_INDEX(2, 0)] = KEY_E,
+	[KEYMAP_INDEX(2, 1)] = KEY_D,
+	[KEYMAP_INDEX(2, 2)] = KEY_X,
 
-	[KEYMAP_INDEX(3, 0)] = KEY_UP,
-	[KEYMAP_INDEX(3, 1)] = KEY_CLEAR,
-	[KEYMAP_INDEX(3, 2)] = KEY_4,
-	[KEYMAP_INDEX(3, 3)] = KEY_MUTE,      /* SPKR */
-	[KEYMAP_INDEX(3, 4)] = KEY_2,
+#elif defined(CONFIG_MACH_EUROPA)
+	[KEYMAP_INDEX(0, 1)] = KEY_VOLUMEDOWN,
+	[KEYMAP_INDEX(0, 2)] = KEY_RIGHT,
+	[KEYMAP_INDEX(0, 3)] = KEY_LEFT,
+	 
+	[KEYMAP_INDEX(1, 0)] = KEY_UP,
+	[KEYMAP_INDEX(1, 1)] = KEY_DOWN,
+	[KEYMAP_INDEX(1, 2)] = 232, // KEY_ENTER,
+	[KEYMAP_INDEX(1, 3)] = KEY_SEND,
+						 
+	[KEYMAP_INDEX(2, 0)] = KEY_SEARCH,
+	[KEYMAP_INDEX(2, 1)] = KEY_BACK,
+	[KEYMAP_INDEX(2, 2)] = KEY_HOME,
+	[KEYMAP_INDEX(2, 3)] = KEY_MENU,
 
-	[KEYMAP_INDEX(4, 0)] = 230,           /* SOFT2 */
-	[KEYMAP_INDEX(4, 1)] = 232,           /* KEY_CENTER */
-	[KEYMAP_INDEX(4, 2)] = KEY_DOWN,
-	[KEYMAP_INDEX(4, 3)] = KEY_BACK,      /* FB */
-	[KEYMAP_INDEX(4, 4)] = KEY_8,
+	[KEYMAP_INDEX(3, 1)] = KEY_VOLUMEUP,
 
-	[KEYMAP_INDEX(5, 0)] = KEY_VOLUMEDOWN,
-	[KEYMAP_INDEX(5, 1)] = 227,           /* KEY_STAR */
-	[KEYMAP_INDEX(5, 2)] = KEY_MAIL,      /* MESG */
-	[KEYMAP_INDEX(5, 3)] = KEY_3,
-	[KEYMAP_INDEX(5, 4)] = KEY_7,
-
-#if SCAN_FUNCTION_KEYS
-	[KEYMAP_INDEX(6, 0)] = KEY_F5,
-	[KEYMAP_INDEX(6, 1)] = KEY_F4,
-	[KEYMAP_INDEX(6, 2)] = KEY_F3,
-	[KEYMAP_INDEX(6, 3)] = KEY_F2,
-	[KEYMAP_INDEX(6, 4)] = KEY_F1
+	[KEYMAP_INDEX(4, 0)] = KEY_END,
 #endif
+
 };
 
-static const unsigned short keypad_keymap_ffa[ARRAY_SIZE(keypad_col_gpios) *
+static unsigned short keypad_keymap_ffa[ARRAY_SIZE(keypad_col_gpios) *
 					      ARRAY_SIZE(keypad_row_gpios)] = {
+#if 0
 	/*[KEYMAP_INDEX(0, 0)] = ,*/
 	/*[KEYMAP_INDEX(0, 1)] = ,*/
 	[KEYMAP_INDEX(0, 2)] = KEY_1,
@@ -137,12 +145,13 @@ static const unsigned short keypad_keymap_ffa[ARRAY_SIZE(keypad_col_gpios) *
 	[KEYMAP_INDEX(5, 2)] = 230, /*SOFT2*/ /* 2 */
 	[KEYMAP_INDEX(5, 3)] = KEY_MENU,      /* 1 */
 	[KEYMAP_INDEX(5, 4)] = KEY_7,
+#endif
 };
 
 #define QSD8x50_FFA_KEYMAP_SIZE (ARRAY_SIZE(keypad_col_gpios_8k_ffa) * \
 			ARRAY_SIZE(keypad_row_gpios_8k_ffa))
 
-static const unsigned short keypad_keymap_8k_ffa[QSD8x50_FFA_KEYMAP_SIZE] = {
+static unsigned short keypad_keymap_8k_ffa[QSD8x50_FFA_KEYMAP_SIZE] = {
 
 	[FFA_8K_KEYMAP_INDEX(0, 0)] = KEY_VOLUMEDOWN,
 	/*[KEYMAP_INDEX(0, 1)] = ,*/
@@ -177,7 +186,7 @@ static const unsigned short keypad_keymap_8k_ffa[QSD8x50_FFA_KEYMAP_SIZE] = {
 	/*[KEYMAP_INDEX(5, 0)] = ,*/
 	[FFA_8K_KEYMAP_INDEX(5, 1)] = 227,           /* KEY_STAR */
 	[FFA_8K_KEYMAP_INDEX(5, 2)] = 230, /*SOFT2*/ /* 2 */
-	[FFA_8K_KEYMAP_INDEX(5, 3)] = 229,      /* 1 */
+	[FFA_8K_KEYMAP_INDEX(5, 3)] = KEY_MENU,      /* 1 */
 	[FFA_8K_KEYMAP_INDEX(5, 4)] = KEY_7,
 };
 
@@ -200,7 +209,16 @@ static struct gpio_event_info *surf_keypad_info[] = {
 };
 
 static struct gpio_event_platform_data surf_keypad_data = {
-	.name		= "surf_keypad",
+//	.name		= "surf_keypad",
+#if defined(CONFIG_MACH_CALLISTO) || defined(CONFIG_MACH_CRONIN)
+#if (CONFIG_BOARD_REVISION < 0x03)
+	.name		= "callisto_keypad0",	//sec: sm.kim
+#else
+	.name		= "callisto_keypad3",	//sec: sm.kim
+#endif
+#elif defined(CONFIG_MACH_EUROPA)
+	.name		= "europa_keypad0",	//sec: sm.kim
+#endif
 	.info		= surf_keypad_info,
 	.info_count	= ARRAY_SIZE(surf_keypad_info)
 };
@@ -276,4 +294,5 @@ struct platform_device keypad_device_7k_ffa = {
 		.platform_data	= &keypad_data_7k_ffa,
 	},
 };
+
 

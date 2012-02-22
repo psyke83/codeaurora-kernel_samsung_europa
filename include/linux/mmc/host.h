@@ -14,7 +14,7 @@
 #include <linux/sched.h>
 
 #include <linux/mmc/core.h>
-
+#define ATH_PATCH 1 
 struct mmc_ios {
 	unsigned int	clock;			/* clock rate */
 	unsigned short	vdd;
@@ -217,6 +217,9 @@ struct mmc_host {
 	} embedded_sdio_data;
 #endif
 
+#ifdef ATH_PATCH
+	int                     suspend_keep_power;
+#endif
 #ifdef CONFIG_MMC_PERF_PROFILING
 	struct {
 

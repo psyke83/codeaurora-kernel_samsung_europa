@@ -241,10 +241,16 @@ int mdp_lcdc_on(struct platform_device *pdev)
 
 	lcdc_underflow_clr |= 0x80000000;	/* enable recovery */
 #else
+	#if defined(CONFIG_MACH_CALLISTO) || defined(CONFIG_MACH_CRONIN) // minhyo100515
+	printk("polarity setting\n"); // minhyodebug
+	hsync_polarity = 1; // active low
+	vsync_polarity = 1;	// active low
+	#else
 	hsync_polarity = 0;
 	vsync_polarity = 0;
+	#endif
 #endif
-	data_en_polarity = 0;
+	data_en_polarity = 0; // active high
 
 	ctrl_polarity =
 	    (data_en_polarity << 2) | (vsync_polarity << 1) | (hsync_polarity);

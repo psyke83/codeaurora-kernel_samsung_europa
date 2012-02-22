@@ -23,17 +23,27 @@
 #include <linux/leds.h>
 
 #include <mach/pmic.h>
+#include <linux/gpio.h>
 
 #define MAX_KEYPAD_BL_LEVEL	16
 
+extern int board_hw_revision;
+static unsigned char n_GPIO_KEY_LED_EN = 78;
 static void msm_keypad_bl_led_set(struct led_classdev *led_cdev,
 	enum led_brightness value)
 {
-	int ret;
+//	int ret;
 
-	ret = pmic_set_led_intensity(LED_KEYPAD, value / MAX_KEYPAD_BL_LEVEL);
-	if (ret)
-		dev_err(led_cdev->dev, "can't set keypad backlight\n");
+	// hsil
+	printk("[HSIL] %s: value=%d\n", __func__, value);
+	if (value)
+		gpio_set_value(n_GPIO_KEY_LED_EN, 1);
+	else
+		gpio_set_value(n_GPIO_KEY_LED_EN, 0);
+
+//	ret = pmic_set_led_intensity(LED_KEYPAD, value / MAX_KEYPAD_BL_LEVEL);
+//	if (ret)
+//		dev_err(led_cdev->dev, "can't set keypad backlight\n");
 }
 
 static struct led_classdev msm_kp_bl_led = {
@@ -95,6 +105,9 @@ static struct platform_driver msm_pmic_led_driver = {
 
 static int __init msm_pmic_led_init(void)
 {
+	if( board_hw_revision < 3 )
+		n_GPIO_KEY_LED_EN = 77;
+		
 	return platform_driver_register(&msm_pmic_led_driver);
 }
 module_init(msm_pmic_led_init);

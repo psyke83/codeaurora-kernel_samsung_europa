@@ -15,6 +15,7 @@
  *
  */
 
+#include <mach/gpio.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/init.h>
@@ -51,6 +52,8 @@
 
 #include "msm_sdcc.h"
 
+#define ATH_PATCH 1
+
 #define DRIVER_NAME "msm-sdcc"
 
 #define DBG(host, fmt, args...)	\
@@ -58,7 +61,7 @@
 
 #define IRQ_DEBUG 0
 
-#if defined(CONFIG_DEBUG_FS)
+#if 0 //#if defined(CONFIG_DEBUG_FS)
 static void msmsdcc_dbg_createhost(struct msmsdcc_host *);
 static struct dentry *debugfs_dir;
 static struct dentry *debugfs_file;
@@ -712,7 +715,21 @@ msmsdcc_pio_irq(int irq, void *dev_id)
 
 		if (!(status & (MCI_TXFIFOHALFEMPTY | MCI_RXDATAAVLBL)))
 			break;
-
+		// [2010.05.05] fix null point exception by sg variable
+		if(host->pio.sg == NULL)
+		{
+			printk(KERN_ERR "[%s] work around. sg is null\n", __func__);
+			spin_unlock(&host->lock);	//ADD
+			return IRQ_HANDLED;
+		}
+		// [2010.6.29 : workaround for that if data is noting, but rxactive by bad sd card
+		if(!host->curr.data && (status & MCI_RXACTIVE))
+		{
+			writel(0, base + MMCIMASK1);
+			spin_unlock(&host->lock);
+			return IRQ_HANDLED;
+		}
+		// ]				
 		/* Map the current scatter buffer */
 		local_irq_save(flags);
 		buffer = kmap_atomic(sg_page(host->pio.sg),
@@ -1081,7 +1098,7 @@ msmsdcc_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 		break;
 	}
 
-	if (ios->bus_mode == MMC_BUSMODE_OPENDRAIN)
+	if (ios->bus_mode == MMC_BUSMODE_OPENDRAIN && host->mmc->index != 0) 
 		pwr |= MCI_OD;
 
 	writel(clk, host->base + MMCICLOCK);
@@ -1258,10 +1275,30 @@ set_polling(struct device *dev, struct device_attribute *attr,
 	return count;
 }
 
+/* ATHENV +++ */
+static ssize_t
+set_detect_change(struct device *dev, struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	struct mmc_host *mmc = dev_get_drvdata(dev);
+	struct msmsdcc_host *host = mmc_priv(mmc);
+	int value;
+	if (sscanf(buf, "%d", &value)==1 && value) {
+        mmc_detect_change(host->mmc, 0);
+    }
+	return count;
+}
+static DEVICE_ATTR(detect_change, S_IRUGO | S_IWUSR,
+		NULL, set_detect_change);
+/* ATHENV --- */
+
 static DEVICE_ATTR(polling, S_IRUGO | S_IWUSR,
 		show_polling, set_polling);
 static struct attribute *dev_attrs[] = {
 	&dev_attr_polling.attr,
+/* ATHENV +++ */
+    &dev_attr_detect_change.attr,
+/* ATHENV --- */
 	NULL,
 };
 static struct attribute_group dev_attr_grp = {
@@ -1295,7 +1332,11 @@ static void msmsdcc_late_resume(struct early_suspend *h)
 };
 #endif
 
+#if 0
 static int
+#else
+int
+#endif
 msmsdcc_probe(struct platform_device *pdev)
 {
 	struct mmc_platform_data *plat = pdev->dev.platform_data;
@@ -1538,7 +1579,7 @@ msmsdcc_probe(struct platform_device *pdev)
 	} else
 		pr_info("%s: PIO transfer enabled\n", mmc_hostname(mmc));
 
-#if defined(CONFIG_DEBUG_FS)
+#if 0 //#if defined(CONFIG_DEBUG_FS)
 	msmsdcc_dbg_createhost(host);
 #endif
 	if (!plat->status_irq) {
@@ -1646,9 +1687,16 @@ msmsdcc_suspend(struct platform_device *dev, pm_message_t state)
 	if (mmc) {
 		if (host->plat->status_irq)
 			disable_irq(host->plat->status_irq);
-
+#ifdef ATH_PATCH /* ATHENV+++ */
+		rc = mmc_suspend_host(mmc, state);
+		if (rc!=0) {
+			if (host->plat->status_irq)
+				enable_irq(host->plat->status_irq);
+		}
+#else
 		if (!mmc->card || mmc->card->type != MMC_TYPE_SDIO)
 			rc = mmc_suspend_host(mmc, state);
+#endif /* ATHENV--- */
 		if (!rc) {
 			writel(0, host->base + MMCIMASK0);
 
@@ -1692,8 +1740,11 @@ msmsdcc_resume(struct platform_device *dev)
 
 		if (host->plat->sdiowakeup_irq)
 			disable_irq(host->plat->sdiowakeup_irq);
-
+#ifdef ATH_PATCH /* ATHENV+++ */
+		if (1)
+#else
 		if (!mmc->card || mmc->card->type != MMC_TYPE_SDIO)
+#endif /* ATHENV--- */
 			mmc_resume_host(mmc);
 		if (host->plat->status_irq)
 			enable_irq(host->plat->status_irq);
@@ -1733,7 +1784,7 @@ static struct platform_driver msmsdcc_driver = {
 
 static int __init msmsdcc_init(void)
 {
-#if defined(CONFIG_DEBUG_FS)
+#if 0 //#if defined(CONFIG_DEBUG_FS)
 	int ret = 0;
 	ret = msmsdcc_dbg_init();
 	if (ret) {
@@ -1748,7 +1799,7 @@ static void __exit msmsdcc_exit(void)
 {
 	platform_driver_unregister(&msmsdcc_driver);
 
-#if defined(CONFIG_DEBUG_FS)
+#if 0 //#if defined(CONFIG_DEBUG_FS)
 	debugfs_remove(debugfs_file);
 	debugfs_remove(debugfs_dir);
 #endif
@@ -1760,7 +1811,7 @@ module_exit(msmsdcc_exit);
 MODULE_DESCRIPTION("Qualcomm Multimedia Card Interface driver");
 MODULE_LICENSE("GPL");
 
-#if defined(CONFIG_DEBUG_FS)
+#if 0 //#if defined(CONFIG_DEBUG_FS)
 
 static int
 msmsdcc_dbg_state_open(struct inode *inode, struct file *file)

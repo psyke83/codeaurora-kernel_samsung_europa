@@ -31,6 +31,12 @@ struct android_usb_platform_data {
 	/* USB device descriptor fields */
 	__u16 vendor_id;
 
+	/* Default product ID. */
+	__u16 product_id;
+
+	/* Default function map. */
+	unsigned long functions;
+
 	__u16 version;
 	/* Fields for composition switch support */
 	struct usb_composition *compositions;
@@ -38,6 +44,7 @@ struct android_usb_platform_data {
 
 	char *product_name;
 	char *manufacturer_name;
+	char *serial_number;
 
 	/* number of LUNS for mass storage function */
 	int nluns;
@@ -51,14 +58,4 @@ struct usb_composition {
 	unsigned long adb_functions;
 };
 
-/* Platform data for "usb_mass_storage" driver. */
-struct usb_mass_storage_platform_data {
-	/* Contains values for the SC_INQUIRY SCSI command. */
-	char *vendor;
-	char *product;
-	int release;
-
-	/* number of LUNS */
-	int nluns;
-};
 #endif	/* __LINUX_USB_ANDROID_H */

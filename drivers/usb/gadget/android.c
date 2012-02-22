@@ -67,8 +67,14 @@ MODULE_DESCRIPTION("Android Composite USB Driver");
 MODULE_LICENSE("GPL");
 MODULE_VERSION("1.0");
 
+extern void modem_register(void);
+extern void modem_unregister(void);
+
 /* product id */
+#define RNDIS_PID 0x6881
+
 static u16 product_id;
+static u16 product_id_inform;
 static int android_set_pid(const char *val, struct kernel_param *kp);
 static int android_get_pid(char *buffer, struct kernel_param *kp);
 module_param_call(product_id, android_set_pid, android_get_pid,
@@ -94,11 +100,15 @@ static u8 hostaddr[ETH_ALEN];
 
 /* Default vendor ID, overridden by platform data */
 #define VENDOR_ID		0x18D1
+#define PRODUCT_ID		0x0001
+#define ADB_PRODUCT_ID	0x0002
 
 struct android_dev {
 	struct usb_gadget *gadget;
 	struct usb_composite_dev *cdev;
 
+	int product_id;
+	int adb_product_id;
 	int version;
 
 	int adb_enabled;
@@ -121,6 +131,7 @@ static struct usb_string strings_dev[] = {
 	/* These dummy values should be overridden by platform data */
 	[STRING_MANUFACTURER_IDX].s = "Android",
 	[STRING_PRODUCT_IDX].s = "Android",
+	[STRING_SERIAL_IDX].s = "0123456789ABCDEF",
 	{  }			/* end of list */
 };
 
@@ -140,6 +151,7 @@ static struct usb_device_descriptor device_desc = {
 	.bcdUSB               = __constant_cpu_to_le16(0x0200),
 	.bDeviceClass         = USB_CLASS_PER_INTERFACE,
 	.idVendor             = __constant_cpu_to_le16(VENDOR_ID),
+	.idProduct            = __constant_cpu_to_le16(PRODUCT_ID),
 	.bcdDevice            = __constant_cpu_to_le16(0xffff),
 	.bNumConfigurations   = 1,
 };
@@ -276,6 +288,21 @@ static int  android_bind_config(struct usb_configuration *c)
 
 }
 
+static int is_usb_networking_on(void)
+{
+	/* Android user space allows USB tethering only when usb0 is listed
+	 * in network interfaces. Setup network link though RNDIS/CDC-ECM
+	 * is not listed in current composition. Network links is not setup
+	 * for every composition switch. It is setup one time and teared down
+	 * during module removal.
+	 */
+#if defined(CONFIG_USB_ANDROID_CDC_ECM) || defined(CONFIG_USB_ANDROID_RNDIS)
+	return 1;
+#else
+	return 0;
+#endif
+}
+
 static int get_num_of_serial_ports(void)
 {
 	struct android_dev *dev = _android_dev;
@@ -335,7 +362,7 @@ static int  android_bind(struct usb_composite_dev *cdev)
 {
 	struct android_dev *dev = _android_dev;
 	struct usb_gadget	*gadget = cdev->gadget;
-	int			gcnum;
+//	int			gcnum;
 	int			id;
 	int			ret;
 	int                     num_ports;
@@ -367,10 +394,10 @@ static int  android_bind(struct usb_composite_dev *cdev)
 	/* Supporting remote wakeup for mass storage only function
 	 * does n't make sense, since there are no notifications that
 	 * can be sent from mass storage during suspend */
-	if ((gadget->ops->wakeup) && (dev->functions != ANDROID_MSC))
-		android_config_driver.bmAttributes |= USB_CONFIG_ATT_WAKEUP;
-	else
-		android_config_driver.bmAttributes &= ~USB_CONFIG_ATT_WAKEUP;
+//	if ((gadget->ops->wakeup) && (dev->functions != ANDROID_MSC))
+//		android_config_driver.bmAttributes |= USB_CONFIG_ATT_WAKEUP;
+//	else
+//		android_config_driver.bmAttributes &= ~USB_CONFIG_ATT_WAKEUP;
 
 	if (dev->pdata->self_powered && !usb_gadget_set_selfpowered(gadget)) {
 		android_config_driver.bmAttributes |= USB_CONFIG_ATT_SELFPOWER;
@@ -387,20 +414,14 @@ static int  android_bind(struct usb_composite_dev *cdev)
 			return ret;
 	}
 
-	/* Android user space allows USB tethering only when usb0 is listed
-	 * in network interfaces. Setup network link though RNDIS/CDC-ECM
-	 * is not listed in current composition. Network links is not setup
-	 * for every composition switch. It is setup one time and teared down
-	 * during module removal.
-	 */
-#if defined(CONFIG_USB_ANDROID_CDC_ECM) || defined(CONFIG_USB_ANDROID_RNDIS)
-	/* set up network link layer */
-	ret = gether_setup(cdev->gadget, hostaddr);
-	if (ret && (ret != -EBUSY)) {
-		gserial_cleanup();
-		return ret;
+	if (is_usb_networking_on()) {
+		/* set up network link layer */
+		ret = gether_setup(cdev->gadget, hostaddr);
+		if (ret && (ret != -EBUSY)) {
+			gserial_cleanup();
+			return ret;
+		}
 	}
-#endif
 
 	/* register our configuration */
 	ret = usb_add_config(cdev, &android_config_driver);
@@ -409,6 +430,7 @@ static int  android_bind(struct usb_composite_dev *cdev)
 		return ret;
 	}
 
+#if 0
 	gcnum = usb_gadget_controller_number(gadget);
 	if (gcnum >= 0)
 		device_desc.bcdDevice = cpu_to_le16(0x0200 + gcnum);
@@ -424,11 +446,20 @@ static int  android_bind(struct usb_composite_dev *cdev)
 			longname, gadget->name);
 		device_desc.bcdDevice = __constant_cpu_to_le16(0x9999);
 	}
+#endif
+       //For kies auto start (bcdDevice is 0x0400) 
+	device_desc.bcdDevice = __constant_cpu_to_le16(0x0400);
 
 	if (is_iad_enabled()) {
+#ifdef CONFIG_USB_SAMSUNG_DRIVER
+		device_desc.bDeviceClass         = USB_CLASS_COMM;
+		device_desc.bDeviceSubClass      = 0x00;
+		device_desc.bDeviceProtocol      = 0x00;
+#else
 		device_desc.bDeviceClass         = USB_CLASS_MISC;
 		device_desc.bDeviceSubClass      = 0x02;
 		device_desc.bDeviceProtocol      = 0x01;
+#endif
 	} else {
 		device_desc.bDeviceClass         = USB_CLASS_PER_INTERFACE;
 		device_desc.bDeviceSubClass      = 0;
@@ -479,11 +510,56 @@ static int android_switch_composition(u16 pid)
 	if (dev->adb_enabled) {
 		product_id = func->adb_product_id;
 		dev->functions = func->adb_functions;
+#ifdef CONFIG_USB_SAMSUNG_DRIVER
+		device_desc.bDeviceClass	  = USB_CLASS_COMM;
+		device_desc.bDeviceSubClass	  = 0x00;
+		device_desc.bDeviceProtocol	  = 0x00;
+#endif
 	} else {
 		product_id = func->product_id;
 		dev->functions = func->functions;
+#ifdef CONFIG_USB_SAMSUNG_DRIVER
+		device_desc.bDeviceClass	  = USB_CLASS_MASS_STORAGE;
+		device_desc.bDeviceSubClass	  = 0x06;//US_SC_SCSI;
+		device_desc.bDeviceProtocol	  = 0x50;//US_PR_BULK;
+#endif
+	}
+	/* to read by samsung dara router. ttygs must be closed by data router before unregister*/
+	if (!(dev->adb_enabled)) 	
+		product_id_inform = product_id;
+
+	usb_composite_unregister(&android_usb_driver);
+	ret = usb_composite_register(&android_usb_driver);
+
+	/*ttygs must be opened by data router after register*/
+	if (dev->adb_enabled)
+		product_id_inform = product_id;
+
+	return ret;
+}
+
+static int android_switch_rndis(u16 pid)
+{
+	struct android_dev *dev = _android_dev;
+	struct usb_composition *func;
+	int ret;
+
+	/* Validate the prodcut id */
+	func = android_validate_product_id(pid);
+	if (!func) {
+		printk(KERN_ERR "%s: invalid product id %x\n", __func__, pid);
+		return -EINVAL;
 	}
 
+	product_id = func->product_id;
+	dev->functions = func->functions;
+	device_desc.bDeviceClass	  = USB_CLASS_COMM;
+	device_desc.bDeviceSubClass	  = 0x00;
+	device_desc.bDeviceProtocol	  = 0x00;
+
+	/* to read by samsung dara router. ttygs must be closed by data router before unregister*/
+	product_id_inform = product_id;
+		
 	usb_composite_unregister(&android_usb_driver);
 	ret = usb_composite_register(&android_usb_driver);
 
@@ -505,8 +581,46 @@ static ssize_t android_remote_wakeup(struct device *dev,
 }
 static DEVICE_ATTR(remote_wakeup, S_IWUSR, 0, android_remote_wakeup);
 
+static ssize_t android_show_compswitch(struct device *dev,
+					 struct device_attribute *attr,
+					 char *buf)
+{
+	int i;
+	
+	i = scnprintf(buf, PAGE_SIZE,
+			"composition product id = %x\n",product_id_inform);
+	
+	return i;
+}
+
+static ssize_t android_store_compswitch(struct device *dev,
+					  struct device_attribute *attr,
+					  const char *buf, size_t size)
+{
+	unsigned long pid;
+
+	mutex_lock(&_android_dev->lock);
+	
+	if (!strict_strtoul(buf, 16, &pid)) {
+		pr_info("%s: Requested New Product id = %lx\n", __func__, pid);
+		if(pid == RNDIS_PID)
+			android_switch_rndis((unsigned short)pid);
+		else
+			android_switch_composition((unsigned short)pid);
+	} else
+		pr_info("%s: strict_strtoul conversion failed\n", __func__);
+
+	mutex_unlock(&_android_dev->lock);
+
+	return size;
+}
+
+static DEVICE_ATTR(composition, 0664,
+		android_show_compswitch, android_store_compswitch);
+
 static struct attribute *android_attrs[] = {
 	&dev_attr_remote_wakeup.attr,
+	&dev_attr_composition.attr,
 	NULL,
 };
 
@@ -534,6 +648,7 @@ static int android_set_sn(const char *kmessage, struct kernel_param *kp)
 static int android_set_pid(const char *val, struct kernel_param *kp)
 {
 	int ret = 0;
+#if 0
 	unsigned long tmp;
 
 	ret = strict_strtoul(val, 16, &tmp);
@@ -552,6 +667,7 @@ static int android_set_pid(const char *val, struct kernel_param *kp)
 	ret = android_switch_composition(tmp);
 	mutex_unlock(&_android_dev->lock);
 out:
+#endif
 	return ret;
 }
 
@@ -618,6 +734,18 @@ static struct miscdevice adb_enable_device = {
 	.fops = &adb_enable_fops,
 };
 
+void get_usb_serial(char *usb_serial_number)
+{
+	char temp_serial_number[20] = "1234567890ABCDEF";
+
+	unsigned int unique_serial_number=0;
+
+	unique_serial_number = (system_serial_high << 16) + (system_serial_low >> 16);
+
+	sprintf(temp_serial_number,"I5500%08x",unique_serial_number);
+	strcpy(usb_serial_number,temp_serial_number);
+}
+
 static int __init android_probe(struct platform_device *pdev)
 {
 	struct android_usb_platform_data *pdata = pdev->dev.platform_data;
@@ -632,9 +760,36 @@ static int __init android_probe(struct platform_device *pdev)
 
 	device_desc.idVendor =	__constant_cpu_to_le16(pdata->vendor_id);
 	dev->version = pdata->version;
+
+	if (pdata->product_id) {
+			dev->product_id = pdata->product_id;
+			dev->functions  = pdata->functions;
+			device_desc.idProduct =
+				__constant_cpu_to_le16(pdata->product_id);
+			product_id = device_desc.idProduct;
+	}
+	
 	strings_dev[STRING_PRODUCT_IDX].s = pdata->product_name;
 	strings_dev[STRING_MANUFACTURER_IDX].s = pdata->manufacturer_name;
-	strings_dev[STRING_SERIAL_IDX].s = serial_number;
+	
+	if(system_serial_high != 0 || system_serial_low !=0)
+	{
+		get_usb_serial(serial_number);
+		strings_dev[STRING_SERIAL_IDX].s = serial_number;
+	}
+	else
+	{
+		if (pdata->serial_number)
+		{
+			strings_dev[STRING_SERIAL_IDX].s = pdata->serial_number;
+		}
+		else
+		{
+			strings_dev[STRING_SERIAL_IDX].s = serial_number;
+		}
+	}
+	strcpy(serial_number, strings_dev[STRING_SERIAL_IDX].s);
+	
 	dev->nluns = pdata->nluns;
 	dev->pdata = pdata;
 
@@ -661,7 +816,7 @@ static struct platform_driver android_platform_driver = {
 static int __init init(void)
 {
 	struct android_dev *dev;
-	struct usb_composition *func;
+//	struct usb_composition *func;
 	int ret;
 
 	pr_debug("android init\n");
@@ -687,6 +842,9 @@ static int __init init(void)
 	if (ret)
 		goto pdrv_unregister;
 
+	/* To register dun driver*/
+	modem_register();
+
 	/* Defer composite driver registration till product id is available */
 	mutex_lock(&dev->lock);
 	if (!product_id) {
@@ -694,7 +852,7 @@ static int __init init(void)
 		ret = 0; /* not failure */
 		goto out;
 	}
-
+#if 0
 	func = android_validate_product_id(product_id);
 	if (!func) {
 		mutex_unlock(&dev->lock);
@@ -703,18 +861,23 @@ static int __init init(void)
 		goto misc_deregister;
 	}
 	dev->functions = func->functions;
+#endif
 
 	ret = usb_composite_register(&android_usb_driver);
 	if (ret) {
 		mutex_unlock(&dev->lock);
 		goto misc_deregister;
 	}
+	
+	product_id_inform = product_id;
+	
 	mutex_unlock(&dev->lock);
 
 	return 0;
 
 misc_deregister:
 	misc_deregister(&adb_enable_device);
+	modem_unregister();
 pdrv_unregister:
 	platform_driver_unregister(&android_platform_driver);
 adb_exit:
@@ -728,12 +891,12 @@ module_init(init);
 
 static void __exit cleanup(void)
 {
-#if defined(CONFIG_USB_ANDROID_CDC_ECM) || defined(CONFIG_USB_ANDROID_RNDIS)
-	gether_cleanup();
-#endif
+	if (is_usb_networking_on())
+		gether_cleanup();
 
 	usb_composite_unregister(&android_usb_driver);
 	misc_deregister(&adb_enable_device);
+	modem_unregister();
 	platform_driver_unregister(&android_platform_driver);
 	adb_function_exit();
 	kfree(_android_dev);

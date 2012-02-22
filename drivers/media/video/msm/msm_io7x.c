@@ -23,6 +23,12 @@
 #include <mach/board.h>
 #include <mach/camera.h>
 #include <mach/clk.h>
+#include <mach/vreg.h>
+
+#if defined(CONFIG_MACH_CALLISTO) || defined(CONFIG_MACH_CRONIN) //PCAM
+#include "s5k5ca_rough.h"
+#endif//PCAM
+
 
 #define CAMIF_CFG_RMSK 0x1fffff
 #define CAM_SEL_BMSK 0x2
@@ -183,16 +189,57 @@ void msm_camio_disable(struct platform_device *pdev)
 	struct msm_camera_sensor_info *sinfo = pdev->dev.platform_data;
 	struct msm_camera_device_platform_data *camdev = sinfo->pdata;
 
+#if defined(CONFIG_MACH_EUROPA)//PGH
+        struct vreg *vreg_cam_out8;
+        struct vreg *vreg_cam_out9;
+        struct vreg *vreg_cam_out10;
+#endif//PGH
+
 	iounmap(mdcbase);
 	release_mem_region(camio_ext.mdcphy, camio_ext.mdcsz);
 	iounmap(appbase);
 	release_mem_region(camio_ext.appphy, camio_ext.appsz);
 
+#if defined(CONFIG_MACH_CALLISTO) || defined(CONFIG_MACH_CRONIN)
+	gpio_set_value(0, 0);//RESET	
+	gpio_set_value(1, 0);//STBY DOWN
+#endif
+
+
 	camdev->camera_gpio_off();
+
+#if defined(CONFIG_MACH_EUROPA)
+	gpio_set_value(0, 0);//RESET	
+	mdelay(10);
+#endif
+	msm_camio_clk_sel(MSM_CAMIO_CLK_SRC_INTERNAL);
 
 	msm_camio_clk_disable(CAMIO_VFE_CLK);
 	msm_camio_clk_disable(CAMIO_MDC_CLK);
 	msm_camio_clk_disable(CAMIO_VFE_MDC_CLK);
+
+#if defined(CONFIG_MACH_CALLISTO) || defined(CONFIG_MACH_CRONIN)
+	msleep(1);
+
+	cam_pw(0);//PCAM
+#elif defined(CONFIG_MACH_EUROPA)
+	mdelay(1);
+
+	gpio_set_value(1, 0);//STBY
+	mdelay(1);
+
+
+
+        vreg_cam_out8 = vreg_get(NULL, "ldo8");
+        vreg_cam_out9 = vreg_get(NULL, "ldo9");
+        vreg_cam_out10 = vreg_get(NULL, "ldo10");
+
+
+
+	vreg_disable(vreg_cam_out10);
+	vreg_disable(vreg_cam_out9);
+	vreg_disable(vreg_cam_out8);
+#endif
 }
 
 void msm_disable_io_gpio_clk(struct platform_device *pdev)

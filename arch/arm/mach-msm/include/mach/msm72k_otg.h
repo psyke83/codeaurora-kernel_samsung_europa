@@ -68,7 +68,7 @@ struct msm_otg {
 	void __iomem		*regs;
 	atomic_t		in_lpm;
 	unsigned int 		core_clk;
-
+	
 	atomic_t		chg_type;
 
 	void (*start_host)	(struct usb_bus *bus, int suspend);

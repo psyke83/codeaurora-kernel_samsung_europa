@@ -50,6 +50,9 @@
 #ifdef CONFIG_FB_MSM_LOGO
 #define INIT_IMAGE_FILE "/logo.rle"
 extern int load_565rle_image(char *filename);
+#ifdef CONFIG_FB_MSM_SEC_BOOTLOGO
+extern int load_565rle_image_onfb( char *filename, int start_x, int start_y);
+#endif
 #endif
 
 static unsigned char *fbram;
@@ -196,6 +199,37 @@ int msm_fb_detect_client(const char *name)
 	return ret;
 }
 
+/* Mark for GetLog */
+
+struct struct_frame_buf_mark {
+	u32 special_mark_1;
+	u32 special_mark_2;
+	u32 special_mark_3;
+	u32 special_mark_4;
+	void *p_fb;
+	u32 resX;
+	u32 resY;
+	u32 bpp;    //color depth : 16 or 24
+	u32 frames; // frame buffer count : 2
+};
+
+static struct struct_frame_buf_mark  frame_buf_mark = {
+	.special_mark_1 = (('*' << 24) | ('^' << 16) | ('^' << 8) | ('*' << 0)),
+	.special_mark_2 = (('I' << 24) | ('n' << 16) | ('f' << 8) | ('o' << 0)),
+	.special_mark_3 = (('H' << 24) | ('e' << 16) | ('r' << 8) | ('e' << 0)),
+	.special_mark_4 = (('f' << 24) | ('b' << 16) | ('u' << 8) | ('f' << 0)),
+	.p_fb   = 0,
+	.resX   = 256,
+#if defined(CONFIG_MACH_EUROPA)
+	.resY   = 320,
+#endif	// CONFIG_MACH_EUROPA
+#if defined(CONFIG_MACH_CALLISTO) || defined(CONFIG_MACH_CRONIN)
+	.resY   = 400, // minhyo 320,
+#endif	// CONFIG_MACH_CALLISTO
+	.bpp    = 24,
+	.frames = 2
+};
+
 static int msm_fb_probe(struct platform_device *pdev)
 {
 	struct msm_fb_data_type *mfd;
@@ -223,6 +257,14 @@ static int msm_fb_probe(struct platform_device *pdev)
 
 	if (!msm_fb_resource_initialized)
 		return -EPERM;
+
+	/* Mark for GetLog */
+#if defined(CONFIG_MACH_EUROPA)
+	frame_buf_mark.p_fb = fbram_phys;
+#endif	// CONFIG_MACH_EUROPA
+#if defined(CONFIG_MACH_CALLISTO)
+	frame_buf_mark.p_fb = fbram_phys - 0x13600000;
+#endif	// CONFIG_MACH_CALLISTO
 
 	mfd = (struct msm_fb_data_type *)platform_get_drvdata(pdev);
 
@@ -817,7 +859,7 @@ static int msm_fb_register(struct msm_fb_data_type *mfd)
 		bpp = 4;
 		break;
 
-	case MDP_RGBA_8888:
+	case MDP_RGBA_8888:   /* Callisto */ 
 		fix->type = FB_TYPE_PACKED_PIXELS;
 		fix->xpanstep = 1;
 		fix->ypanstep = 1;
@@ -890,6 +932,13 @@ static int msm_fb_register(struct msm_fb_data_type *mfd)
 	var->xres_virtual = panel_info->xres;
 	var->yres_virtual = panel_info->yres * mfd->fb_page;
 	var->bits_per_pixel = bpp * 8;	/* FrameBuffer color depth */
+
+	if (mfd->index == 0)
+		{
+		var->height = panel_info->height;	/* height of picture in mm */
+		var->width = panel_info->width;		/* width of picture in mm */
+		}
+
 		/*
 		 * id field for fb app
 		 */
@@ -977,8 +1026,12 @@ static int msm_fb_register(struct msm_fb_data_type *mfd)
 	    ("FrameBuffer[%d] %dx%d size=%d bytes is registered successfully!\n",
 	     mfd->index, fbi->var.xres, fbi->var.yres, fbi->fix.smem_len);
 
-#ifdef CONFIG_FB_MSM_LOGO
-	if (!load_565rle_image(INIT_IMAGE_FILE)) ;	/* Flip buffer */
+#ifdef CONFIG_FB_MSM_SEC_BOOTLOGO
+#if defined(CONFIG_MACH_EUROPA)	
+	if (!load_565rle_image_onfb( "EUROPA.rle",0,99)) ;	/* Flip buffer */
+#else	
+	if (!load_565rle_image_onfb( "CALLISTO.rle",0,0)) ;	/* Flip buffer */
+#endif
 #endif
 	ret = 0;
 
@@ -1275,6 +1328,7 @@ static int msm_fb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 		break;
 
 	case 32:
+#if 1 /* QC_PATCH_6030 */
 		/* Figure out if the user meant RGBA or ARGB
 		   and verify the position of the RGB components */
 
@@ -1301,7 +1355,22 @@ static int msm_fb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 		    (var->green.msb_right != 0) ||
 		    (var->red.msb_right != 0))
 			return -EINVAL;
-
+#else
+		if ((var->blue.offset != 8) ||
+			(var->green.offset != 16) ||
+			(var->red.offset != 24) ||
+			(var->blue.length != 8) ||
+			(var->green.length != 8) ||
+			(var->red.length != 8) ||
+			(var->blue.msb_right != 0) ||
+			(var->green.msb_right != 0) ||
+			(var->red.msb_right != 0) ||
+			!(((var->transp.offset == 0) &&
+				(var->transp.length == 8)) ||
+			((var->transp.offset == 0) &&
+				(var->transp.length == 8))))
+				return -EINVAL;
+#endif
 		break;
 
 	default:
@@ -1358,10 +1427,14 @@ static int msm_fb_set_par(struct fb_info *info)
 		break;
 
 	case 32:
+#if 1 /* QC_PATCH_6030 */
 		if (var->transp.offset == 24)
 			mfd->fb_imgType = MDP_ARGB_8888;
 		else
-			mfd->fb_imgType = MDP_RGBA_8888;
+#endif
+                {      
+		       mfd->fb_imgType = MDP_RGBA_8888;   /* callisto */
+                }
 		break;
 
 	default:
@@ -1426,7 +1499,8 @@ int msm_fb_resume_sw_refresher(struct msm_fb_data_type *mfd)
 	return 0;
 }
 
-#if defined CONFIG_FB_MSM_MDP31
+//#ifdef CONFIG_FB_MSM_MDP31
+#if defined(CONFIG_FB_MSM_MDP31) || defined(CONFIG_FB_MSM_MDP30) 
 static int mdp_blit_split_height(struct fb_info *info,
 				struct mdp_blit_req *req)
 {
@@ -1557,7 +1631,7 @@ static int mdp_blit_split_height(struct fb_info *info,
 int mdp_blit(struct fb_info *info, struct mdp_blit_req *req)
 {
 	int ret;
-#if defined CONFIG_FB_MSM_MDP31 || defined CONFIG_FB_MSM_MDP30
+#if defined(CONFIG_FB_MSM_MDP31) || defined(CONFIG_FB_MSM_MDP30) 
 	unsigned int remainder = 0, is_bpp_4 = 0;
 	struct mdp_blit_req splitreq;
 	int s_x_0, s_x_1, s_w_0, s_w_1, s_y_0, s_y_1, s_h_0, s_h_1;
@@ -1591,6 +1665,8 @@ int mdp_blit(struct fb_info *info, struct mdp_blit_req *req)
 #if defined CONFIG_FB_MSM_MDP31
 	/* MDP width split workaround */
 	remainder = (req->dst_rect.w)%32;
+        
+        /* QC_PATCH_6030 */
 	ret = mdp_get_bytes_per_pixel(req->dst.format);
 	if (ret <= 0) {
 		printk(KERN_ERR "mdp_ppp: incorrect bpp!\n");
@@ -1750,7 +1826,7 @@ int mdp_blit(struct fb_info *info, struct mdp_blit_req *req)
 	else
 		ret = mdp_ppp_blit(info, req);
 	return ret;
-#elif defined CONFIG_FB_MSM_MDP30
+#elif defined CONFIG_FB_MSM_MDP30  /* QC_PATCH_6030 */
 	/* MDP width split workaround */
 	remainder = (req->dst_rect.w)%16;
 	ret = mdp_get_bytes_per_pixel(req->dst.format);

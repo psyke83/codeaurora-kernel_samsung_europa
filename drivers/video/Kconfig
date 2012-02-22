@@ -2153,6 +2153,12 @@ config FB_MSM_LOGO
 	---help---
 	  Show /logo.rle during boot.
 
+config FB_MSM_SEC_BOOTLOGO
+	default y
+    bool "MSM FB samsung booting logo"
+	---help---
+	  Show /I7500_xxx.rle and kernel progress bar image during boot.
+
 config FB_MSM_LCDC_HW
 	bool
 	default n
@@ -2244,6 +2250,26 @@ config FB_MSM_LCDC_PANEL
 	select FB_MSM_LCDC
 	default n
 
+config FB_MSM_LCDC_S6D16A0_HVGA
+	bool
+	select FB_MSM_LCDC_PANEL
+	default n
+
+config FB_MSM_LCDC_TA8566_WQVGA
+	bool
+	select FB_MSM_LCDC_PANEL
+	default n
+
+config FB_MSM_LCDC_S6D04D1_WQVGA
+	bool
+	select FB_MSM_LCDC_PANEL
+	default n
+
+config FB_MSM_LCDC_S6D04M0_QVGA
+	bool
+	select FB_MSM_LCDC_PANEL
+	default n
+
 config FB_MSM_LCDC_ST15_WXGA
     bool
     select FB_MSM_LCDC_PANEL
@@ -2290,6 +2316,34 @@ choice
 	prompt "LCD Panel"
 	default FB_MSM_MDDI_AUTO_DETECT
 
+config FB_MSM_LCDC_S6D16A0_HVGA_PANEL
+	depends on FB_MSM_LCDC_HW
+	bool "LCDC S6D16A0 WVGA Panel"
+	select FB_MSM_LCDC_S6D16A0_HVGA
+	---help---
+	  Support for LCDC S6D16A0 HVGA (320x480) panel
+
+config FB_MSM_LCDC_TA8566_WQVGA_PANEL
+	depends on FB_MSM_LCDC_HW
+	bool "LCDC TA8566 WQVGA Panel"
+	select FB_MSM_LCDC_TA8566_WQVGA
+	---help---
+	  Support for LCDC TA8566 WQVGA (240x400) panel
+
+config FB_MSM_LCDC_S6D04D1_WQVGA_PANEL
+	depends on FB_MSM_LCDC_HW
+	bool "LCDC S6D04D1 WQVGA Panel"
+	select FB_MSM_LCDC_S6D04D1_WQVGA
+	---help---
+	  Support for LCDC S6D04D1 WQVGA (240x400) panel
+
+config FB_MSM_LCDC_S6D04M0_QVGA_PANEL
+	depends on FB_MSM_LCDC_HW
+	bool "LCDC S6D04M0 QVGA Panel"
+	select FB_MSM_LCDC_S6D04M0_QVGA
+	---help---
+	  Support for LCDC S6D04M0 QVGA (240x320) panel
+
 config FB_MSM_LCDC_PRISM_WVGA_PANEL
 	depends on FB_MSM_LCDC_HW
 	bool "LCDC Prism WVGA Panel"
@@ -2335,6 +2389,9 @@ config FB_MSM_TRY_MDDI_CATCH_LCDC_PRISM
 	select FB_MSM_LCDC_TOSHIBA_WVGA_PT
 	select FB_MSM_LCDC_SHARP_WVGA_PT
 	select FB_MSM_LCDC_ST15_WXGA
+	select FB_MSM_LCDC_TA8566_WQVGA
+	select FB_MSM_LCDC_S6D04D1_WQVGA
+	select FB_MSM_LCDC_S6D04M0_QVGA
 	---help---
 	  Support for MDDI panel auto detect.
 	  If it can't find any MDDI panel, it will load an LCDC panel.

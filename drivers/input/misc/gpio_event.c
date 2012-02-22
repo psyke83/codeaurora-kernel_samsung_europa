@@ -118,6 +118,25 @@ void gpio_event_resume(struct early_suspend *h)
 }
 #endif
 
+
+#if (defined(CONFIG_MACH_EUROPA) || defined(CONFIG_MACH_CALLISTO) || defined(CONFIG_MACH_CRONIN)) 
+extern int key_pressed;
+/* sys fs */
+struct class *key_class;
+EXPORT_SYMBOL(key_class);
+struct device *key_dev;
+EXPORT_SYMBOL(key_dev);
+ 
+static ssize_t key_show(struct device *dev, struct device_attribute *attr, char *buf);
+static DEVICE_ATTR(key , S_IRUGO | S_IWUSR | S_IWOTH | S_IXOTH, key_show, NULL);
+/* sys fs */
+ 
+static ssize_t key_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%d\n", key_pressed );
+}
+#endif
+
 static int __init gpio_event_probe(struct platform_device *pdev)
 {
 	int err;
@@ -191,6 +210,21 @@ static int __init gpio_event_probe(struct platform_device *pdev)
 		}
 		registered++;
 	}
+
+#if (defined(CONFIG_MACH_EUROPA) || defined(CONFIG_MACH_CALLISTO) || defined(CONFIG_MACH_CRONIN))
+	/* sys fs */
+	key_class = class_create(THIS_MODULE, "key");
+	if (IS_ERR(key_class))
+		pr_err("Failed to create class(key)!\n");
+
+	key_dev = device_create(key_class, NULL, 0, NULL, "key");
+	if (IS_ERR(key_dev))
+		pr_err("Failed to create device(key)!\n");
+
+	if (device_create_file(key_dev, &dev_attr_key) < 0)
+		pr_err("Failed to create device file(%s)!\n", dev_attr_key.attr.name); 
+	/* sys fs */
+#endif
 
 	return 0;
 

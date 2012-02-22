@@ -36,6 +36,16 @@
 #include <linux/poll.h>
 #include <media/msm_camera.h>
 #include <mach/camera.h>
+
+#if 1//PCAM REMOVE or FIX ME
+#if defined(CONFIG_MACH_CALLISTO) || defined(CONFIG_MACH_CRONIN)
+#include "s5k5ca_rough.h"
+#elif defined(CONFIG_MACH_EUROPA)
+#include "sr200pc10_rough.h"
+#endif
+#include <mach/gpio.h>
+#endif//PCAM
+
 #include <linux/syscalls.h>
 #include <linux/hrtimer.h>
 DEFINE_MUTEX(hlist_mut);
@@ -636,7 +646,7 @@ static int msm_control(struct msm_control_device *ctrl_pmsm,
 	struct msm_ctrl_cmd udata;
 	struct msm_queue_cmd qcmd;
 	struct msm_queue_cmd *qcmd_resp = NULL;
-	uint8_t data[max_control_command_size];
+	uint8_t data[max_control_command_size];//PCAM 6030 CS
 
 	CDBG("Inside msm_control\n");
 	if (copy_from_user(&udata, arg, sizeof(struct msm_ctrl_cmd))) {
@@ -1903,6 +1913,14 @@ static long msm_ioctl_control(struct file *filep, unsigned int cmd,
 	case MSM_CAM_IOCTL_GET_SENSOR_INFO:
 		rc = msm_get_sensor_info(pmsm->sync, argp);
 		break;
+
+#if 1//PCAM
+        case MSM_CAM_IOCTL_PCAM_CTRL_8BIT:
+                sensor_rough_control(argp);
+                rc = 0;
+                break;
+#endif//PCAM
+
 	default:
 		rc = msm_ioctl_common(pmsm, cmd, argp);
 		break;
@@ -2205,11 +2223,24 @@ static int __msm_open(struct msm_sync *sync, const char *const apps_id)
 	if (!sync->opencnt) {
 		wake_lock(&sync->wake_lock);
 
+#if 1//PCAM
+		cam_pw(1);
+#endif//PCAM
+		
 		msm_camvfe_fn_init(&sync->vfefn, sync);
 		if (sync->vfefn.vfe_init) {
 			sync->get_pic_abort = 0;
 			rc = sync->vfefn.vfe_init(&msm_vfe_s,
 				sync->pdev);
+#if 1//PCAM
+			printk("<=PCAM=> pre power init\n");
+#if defined(CONFIG_MACH_EUROPA)
+			gpio_set_value(0, 0);//RESET    
+			gpio_set_value(1, 0);//STBY 
+#endif
+			gpio_set_value(1, 1); //STBY -> UP
+#endif//PCAM
+
 			if (rc < 0) {
 				pr_err("%s: vfe_init failed at %d\n",
 					__func__, rc);

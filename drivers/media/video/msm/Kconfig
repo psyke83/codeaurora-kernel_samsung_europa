@@ -2,33 +2,40 @@ comment "Camera Sensor Selection"
 config MT9T013
 	bool "Sensor mt9t013 (BAYER 3M)"
 	depends on MSM_CAMERA && !ARCH_MSM8X60
-	default y
+	default n
 	---help---
 	  MICRON 3M Bayer Sensor with AutoFocus
 
 config MT9D112
 	bool "Sensor mt9d112 (YUV 2M)"
 	depends on MSM_CAMERA && !ARCH_MSM8X60
-	default y
+	default n
 	---help---
 	  MICRON 2M YUV Sensor
-config IMX074
-	bool "Sensor IMX074 (BAYER 13.5M)"
-	depends on MSM_CAMERA && ARCH_MSM8X60
-	default y
-	---help---
-	SONY 13.5 MP Bayer Sensor
 config VX6953
 	bool "Sensor VX6953 (BAYER 5M)"
 	depends on MSM_CAMERA && ARCH_MSM7X30
-	default y
+	default n
 	---help---
 	STM 5M Bayer Sensor with EDOF
+
+config SR200PC10
+	bool "Sensor sr200pc10 (2M)"
+	default n
+	---help---
+	  SILICON-FILE 2M CMOS Sensor
+
+
+config S5K5CA
+	bool "Sensor s5k5ca 1/5 (3M)"
+	default n
+	---help---
+	  SAMS
 
 config MT9P012
 	bool "Sensor mt9p012 (BAYER 5M)"
 	depends on MSM_CAMERA && !ARCH_MSM8X60
-	default y
+	default n
 	---help---
 	  MICRON 5M Bayer Sensor with Autofocus
 
