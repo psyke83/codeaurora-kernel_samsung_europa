@@ -28,8 +28,6 @@
 #include <linux/mmc/sdio_ids.h>
 #endif
 
-#define ATH_PATCH 1
-
 static int sdio_read_fbr(struct sdio_func *func)
 {
 	int ret;
@@ -439,14 +437,6 @@ static int mmc_sdio_suspend(struct mmc_host *host)
 			const struct dev_pm_ops *pmops = func->dev.driver->pm;
 			if (!pmops || !pmops->suspend || !pmops->resume) {
 				/* force removal of entire card in that case */
-#if 0
-#ifdef ATH_PATCH
-				mmc_sdio_remove(host);
-				mmc_claim_host(host);
-				mmc_detach_bus(host);
-				mmc_release_host(host);
-#endif /* ATH_PATCH */
-#endif
 				err = -ENOSYS;
 			} else
 				err = pmops->suspend(&func->dev);
@@ -454,12 +444,6 @@ static int mmc_sdio_suspend(struct mmc_host *host)
 				break;
 		}
 	}
-#ifdef ATH_PATCH
-	if (err == -EBUSY) {
-		host->suspend_keep_power = 1;
-		return err;
-	}
-#endif /* ATH_PATCH */
 	while (err && --i >= 0) {
 		struct sdio_func *func = host->card->sdio_func[i];
 		if (func && sdio_func_present(func) && func->dev.driver) {
@@ -479,18 +463,10 @@ static int mmc_sdio_resume(struct mmc_host *host)
 	BUG_ON(!host->card);
 
 	/* Basic card reinitialization. */
-#ifdef ATH_PATCH
-	if (!host->suspend_keep_power) {
-#endif /* ATH_PATCH */
 	mmc_claim_host(host);
 	err = mmc_sdio_init_card(host, host->ocr, host->card);
 	mmc_release_host(host);
-#ifdef ATH_PATCH
-	} else {
-		err = 0;
-		host->suspend_keep_power = 0;
-	}
-#endif /* ATH_PATCH */
+
 	/*
 	 * If the card looked to be the same as before suspending, then
 	 * we proceed to resume all card functions.  If one of them returns

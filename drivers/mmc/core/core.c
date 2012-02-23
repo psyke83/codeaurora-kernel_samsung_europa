@@ -29,7 +29,6 @@
 #include <linux/mmc/mmc.h>
 #include <linux/mmc/sd.h>
 
-#include <mach/gpio.h>	
 #include "core.h"
 #include "bus.h"
 #include "host.h"
@@ -38,12 +37,9 @@
 #include "mmc_ops.h"
 #include "sd_ops.h"
 #include "sdio_ops.h"
-#include "../../../arch/arm/mach-msm/proc_comm.h"
 
 static struct workqueue_struct *workqueue;
 static struct wake_lock mmc_delayed_work_wake_lock;
-
-#define ATH_PATCH 1
 
 /*
  * Enabling software CRCs on the data blocks can be a significant (30%)
@@ -314,14 +310,14 @@ void mmc_set_data_timeout(struct mmc_data *data, const struct mmc_card *card)
 			 * The limit is really 250 ms, but that is
 			 * insufficient for some crappy cards.
 			 */
-			 limit_us = 1000000;		// increase timeout period for specific SD card
+			limit_us = 300000;
 		else
-			limit_us = 500000;
+			limit_us = 100000;
 
 		/*
 		 * SDHC cards always use these fixed values.
 		 */
-		if ( 1 ){ //qualcomm timeout_us > limit_us || mmc_card_blockaddr(card)) {
+		if (timeout_us > limit_us || mmc_card_blockaddr(card)) {
 			data->timeout_ns = limit_us * 1000;
 			data->timeout_clks = 0;
 		}
@@ -893,7 +889,7 @@ void mmc_set_timing(struct mmc_host *host, unsigned int timing)
  * If a host does all the power sequencing itself, ignore the
  * initial MMC_POWER_UP stage.
  */
-void mmc_power_up(struct mmc_host *host)
+static void mmc_power_up(struct mmc_host *host)
 {
 	int bit;
 
@@ -920,7 +916,7 @@ void mmc_power_up(struct mmc_host *host)
 	 * This delay should be sufficient to allow the power supply
 	 * to reach the minimum voltage.
 	 */
-	mmc_delay(100); 
+	mmc_delay(10);
 
 	host->ios.clock = host->f_min;
 
@@ -934,7 +930,7 @@ void mmc_power_up(struct mmc_host *host)
 	mmc_delay(10);
 }
 
-void mmc_power_off(struct mmc_host *host)
+static void mmc_power_off(struct mmc_host *host)
 {
 	host->ios.clock = 0;
 	host->ios.vdd = 0;
@@ -989,8 +985,6 @@ static inline void mmc_bus_put(struct mmc_host *host)
 
 int mmc_resume_bus(struct mmc_host *host)
 {
-	int err = 0;
-
 	if (!mmc_bus_needs_resume(host))
 		return -EINVAL;
 
@@ -1000,19 +994,11 @@ int mmc_resume_bus(struct mmc_host *host)
 	if (host->bus_ops && !host->bus_dead) {
 		mmc_power_up(host);
 		BUG_ON(!host->bus_ops->resume);
-		err = host->bus_ops->resume(host);
+		host->bus_ops->resume(host);
 	}
 
-
-	if(!err )
-	{
 	if (host->bus_ops->detect && !host->bus_dead)
 		host->bus_ops->detect(host);
-	}
-       else
-	{
-		printk(KERN_WARNING "%s: error %d during resume (card was removed?)\n",  mmc_hostname(host), err);
-	}
 
 	mmc_bus_put(host);
 	printk("%s: Deferred resume completed\n", mmc_hostname(host));
@@ -1100,16 +1086,8 @@ void mmc_rescan(struct work_struct *work)
 	struct mmc_host *host =
 		container_of(work, struct mmc_host, detect.work);
 	u32 ocr;
-	int err = 0;
+	int err;
 	int extend_wakelock = 0;
-
-	// when every sd card scan, gpios are set to defalut
-	gpio_tlmm_config(GPIO_CFG(51, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_8MA), GPIO_ENABLE);
-	gpio_tlmm_config(GPIO_CFG(52, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_8MA), GPIO_ENABLE);
-	gpio_tlmm_config(GPIO_CFG(53, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_8MA), GPIO_ENABLE);
-	gpio_tlmm_config(GPIO_CFG(54, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_8MA), GPIO_ENABLE);
-	gpio_tlmm_config(GPIO_CFG(55, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_8MA), GPIO_ENABLE);
-	gpio_tlmm_config(GPIO_CFG(56, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_8MA), GPIO_ENABLE);
 
 	mmc_bus_get(host);
 
@@ -1152,18 +1130,6 @@ void mmc_rescan(struct work_struct *work)
 
 	mmc_send_if_cond(host, host->ocr_avail);
 
-		// To improve sd detection, change the order of check cmd between sdio and sd protocol
-	/*
-	 * ...then normal SD...
-	 */
-	err = mmc_send_app_op_cond(host, 0, &ocr);
-	if (!err) {
-		if (mmc_attach_sd(host, ocr))
-			mmc_power_off(host);
-		extend_wakelock = 1;
-		goto out;
-	}
-
 	/*
 	 * First we search for SDIO...
 	 */
@@ -1175,6 +1141,16 @@ void mmc_rescan(struct work_struct *work)
 		goto out;
 	}
 
+	/*
+	 * ...then normal SD...
+	 */
+	err = mmc_send_app_op_cond(host, 0, &ocr);
+	if (!err) {
+		if (mmc_attach_sd(host, ocr))
+			mmc_power_off(host);
+		extend_wakelock = 1;
+		goto out;
+	}
 
 	/*
 	 * ...and finally MMC.
@@ -1196,7 +1172,7 @@ out:
 	else
 		wake_unlock(&mmc_delayed_work_wake_lock);
 
-	if ((host->caps & MMC_CAP_NEEDS_POLL) || (host->index==0 && err && !gpio_get_value( 49 )))
+	if (host->caps & MMC_CAP_NEEDS_POLL)
 		mmc_schedule_delayed_work(&host->detect, HZ);
 }
 
@@ -1339,10 +1315,6 @@ int mmc_suspend_host(struct mmc_host *host, pm_message_t state)
 	if (!err)
 		mmc_power_off(host);
 
-#ifdef ATH_PATCH
-	if (err == -EBUSY)
-		err = 0;
-#endif /* ATH_PATCH */
 	return err;
 }
 
@@ -1364,14 +1336,8 @@ int mmc_resume_host(struct mmc_host *host)
 	}
 
 	if (host->bus_ops && !host->bus_dead) {
-#ifdef ATH_PATCH	
-		if (!host->suspend_keep_power) {
-#endif /* ATH_PATCH */
 		mmc_power_up(host);
 		mmc_select_voltage(host, host->ocr);
-#ifdef ATH_PATCH	
-		}
-#endif /* ATH_PATCH */
 		BUG_ON(!host->bus_ops->resume);
 		err = host->bus_ops->resume(host);
 		if (err) {
@@ -1387,9 +1353,6 @@ int mmc_resume_host(struct mmc_host *host)
 	 * We add a slight delay here so that resume can progress
 	 * in parallel.
 	 */
-#ifdef ATH_PATCH	
-	if (!host->card || host->card->type != MMC_TYPE_SDIO)
-#endif /* ATH_PATCH */
 	mmc_detect_change(host, 1);
 
 	return err;
