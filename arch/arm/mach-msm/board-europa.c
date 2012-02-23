@@ -21,7 +21,6 @@
 #include <linux/io.h>
 #include <linux/delay.h>
 #include <linux/bootmem.h>
-#include <linux/usb/mass_storage_function.h>
 #include <linux/power_supply.h>
 #include <linux/gpio_event.h>
 #include <linux/i2c-gpio.h>
@@ -51,7 +50,7 @@
 #include <mach/memory.h>
 #include <mach/msm_battery.h>
 #include <mach/rpc_server_handset.h>
-
+#include <mach/msm_tsif.h>
 
 #include <linux/mtd/nand.h>
 #include <linux/mtd/partitions.h>
@@ -69,6 +68,10 @@
 #include "pm.h"
 #ifdef CONFIG_ARCH_MSM7X27
 #include <linux/msm_kgsl.h>
+#endif
+
+#ifdef CONFIG_USB_ANDROID
+#include <linux/usb/android.h>
 #endif
 
 #ifdef CONFIG_SENSORS_BMA_ACCEL
@@ -220,6 +223,19 @@ static struct usb_composition usb_func_composition[] = {
 		.adb_functions	    = 0x1243,
 	},
 };
+static struct usb_mass_storage_platform_data mass_storage_pdata = {
+	.nluns		= 1,
+	.vendor		= "GOOGLE",
+	.product	= "Mass Storage",
+	.release	= 0xFFFF,
+};
+static struct platform_device mass_storage_device = {
+	.name           = "usb_mass_storage",
+	.id             = -1,
+	.dev            = {
+		.platform_data          = &mass_storage_pdata,
+	},
+};
 static struct android_usb_platform_data android_usb_pdata = {
 //	.vendor_id	= 0x05C6,
 	.vendor_id	= 0x04E8, /* 0x04E8 is Samsung's vendor ID */
@@ -241,7 +257,6 @@ static struct android_usb_platform_data android_usb_pdata = {
 	.product_name	= "Qualcomm HSUSB Device",
 	.manufacturer_name = "Qualcomm Incorporated",
 #endif
-	.nluns = 1,
 	.self_powered = 1,
 };
 static struct platform_device android_usb_device = {
@@ -351,17 +366,9 @@ static int hsusb_rpc_connect(int connect)
 }
 #endif
 
-#if defined(CONFIG_USB_MSM_OTG_72K) || defined(CONFIG_USB_EHCI_MSM)
-static int msm_hsusb_rpc_phy_reset(void __iomem *addr)
-{
-	return msm_hsusb_phy_reset();
-}
-#endif
-
 #ifdef CONFIG_USB_MSM_OTG_72K
 static struct msm_otg_platform_data msm_otg_pdata = {
 	.rpc_connect	= hsusb_rpc_connect,
-	.phy_reset	= msm_hsusb_rpc_phy_reset,
 	.pmic_notif_init         = msm_pm_app_rpc_init,
 	.pmic_notif_deinit       = msm_pm_app_rpc_deinit,
 	.pmic_register_vbus_sn   = msm_pm_app_register_vbus_sn,
@@ -568,6 +575,7 @@ static struct platform_device android_pmem_kernel_ebi1_device = {
 
 static struct msm_handset_platform_data hs_platform_data = {
 	.hs_name = "7k_handset",
+	.pwr_key_delay_ms = 500, /* 0 will disable end key */
 };
 
 static struct platform_device hs_device = {
@@ -578,6 +586,30 @@ static struct platform_device hs_device = {
 	},
 };
 
+/* TSIF begin */
+#if defined(CONFIG_TSIF) || defined(CONFIG_TSIF_MODULE)
+
+#define TSIF_B_SYNC      GPIO_CFG(87, 5, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA)
+#define TSIF_B_DATA      GPIO_CFG(86, 3, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA)
+#define TSIF_B_EN        GPIO_CFG(85, 3, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA)
+#define TSIF_B_CLK       GPIO_CFG(84, 4, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA)
+
+static const struct msm_gpio tsif_gpios[] = {
+	{ .gpio_cfg = TSIF_B_CLK,  .label =  "tsif_clk", },
+	{ .gpio_cfg = TSIF_B_EN,   .label =  "tsif_en", },
+	{ .gpio_cfg = TSIF_B_DATA, .label =  "tsif_data", },
+	{ .gpio_cfg = TSIF_B_SYNC, .label =  "tsif_sync", },
+};
+
+static struct msm_tsif_platform_data tsif_platform_data = {
+	.num_gpios = ARRAY_SIZE(tsif_gpios),
+	.gpios = tsif_gpios,
+	.tsif_clk = "tsif_clk",
+	.tsif_pclk = "tsif_pclk",
+	.tsif_ref_clk = "tsif_ref_clk",
+};
+#endif /* defined(CONFIG_TSIF) || defined(CONFIG_TSIF_MODULE) */
+/* TSIF end   */
 
 #define LCDC_CONFIG_PROC          21
 #define LCDC_UN_CONFIG_PROC       22
@@ -1484,6 +1516,7 @@ static struct platform_device *devices[] __initdata = {
 #endif
 
 #ifdef CONFIG_USB_ANDROID
+	&mass_storage_device,
 	&android_usb_device,
 #endif
 	&msm_device_i2c,
@@ -1503,7 +1536,6 @@ static struct platform_device *devices[] __initdata = {
 	&msm_device_uart_dm2,
 #ifdef CONFIG_BT
 	&msm_bt_power_device,
-	&msm_bluesleep_device,
 #endif
 	&msm_device_pmic_leds,
 	&msm_device_snd,
@@ -1534,8 +1566,12 @@ static struct platform_device *devices[] __initdata = {
 #ifdef CONFIG_VB6801
 	&msm_camera_sensor_vb6801,
 #endif
+	&msm_bluesleep_device,
 #ifdef CONFIG_ARCH_MSM7X27
 	&msm_device_kgsl,
+#endif
+#if defined(CONFIG_TSIF) || defined(CONFIG_TSIF_MODULE)
+	&msm_device_tsif,
 #endif
 	&hs_device,
 	&msm_batt_device,
@@ -1562,7 +1598,7 @@ static void __init msm7x2x_init_irq(void)
 
 static struct msm_acpu_clock_platform_data msm7x2x_clock_data = {
 	.acpu_switch_time_us = 50,
-	.max_speed_delta_khz = 256000,
+	.max_speed_delta_khz = 400000,
 	.vdd_switch_time_us = 62,
 	.max_axi_khz = 160000,
 };
@@ -1581,7 +1617,6 @@ static void msm_hsusb_vbus_power(unsigned phy_info, int on)
 
 static struct msm_usb_host_platform_data msm_usb_host_pdata = {
 	.phy_info       = (USB_PHY_INTEGRATED | USB_PHY_MODEL_65NM),
-	.phy_reset = msm_hsusb_rpc_phy_reset,
 	.vbus_power = msm_hsusb_vbus_power,
 };
 static void __init msm7x2x_init_host(void)
@@ -2026,6 +2061,13 @@ static struct mmc_platform_data msm7x2x_sdc3_data = {
 	.ocr_mask	= MMC_VDD_28_29,
 	.translate_vdd	= msm_sdcc_setup_power,
 	.mmc_bus_width  = MMC_CAP_4_BIT_DATA,
+	.msmsdcc_fmin	= 144000,
+	.msmsdcc_fmid	= 24576000,
+	.msmsdcc_fmax	= 49152000,
+	.nonremovable	= 0,
+#ifdef CONFIG_MMC_MSM_SDC3_DUMMY52_REQUIRED
+	.dummy52_required = 1,
+#endif
 };
 #endif
 
@@ -2034,6 +2076,13 @@ static struct mmc_platform_data msm7x2x_sdc4_data = {
 	.ocr_mask	= MMC_VDD_28_29,
 	.translate_vdd	= msm_sdcc_setup_power,
 	.mmc_bus_width  = MMC_CAP_4_BIT_DATA,
+	.msmsdcc_fmin	= 144000,
+	.msmsdcc_fmid	= 24576000,
+	.msmsdcc_fmax	= 49152000,
+	.nonremovable	= 0,
+#ifdef CONFIG_MMC_MSM_SDC4_DUMMY52_REQUIRED
+	.dummy52_required = 1,
+#endif
 };
 #endif
 
@@ -2174,8 +2223,8 @@ static void usb_mpp_init(void)
 
 	if (machine_is_msm7x25_ffa() || machine_is_msm7x27_ffa()) {
 		rc = mpp_config_digital_out(mpp_usb,
-				MPP_CFG(MPP_DLOGIC_LVL_VDD,
-					MPP_DLOGIC_OUT_CTRL_HIGH));
+			MPP_CFG(MPP_DLOGIC_LVL_VDD,
+				MPP_DLOGIC_OUT_CTRL_HIGH));
 		if (rc)
 			pr_err("%s: configuring mpp pin"
 					"to enable 3.3V LDO failed\n", __func__);
@@ -2190,8 +2239,6 @@ static void __init msm7x2x_init(void)
 {
 	int ret = 0;
 
-	if (socinfo_init() < 0)
-		BUG();
 #ifdef CONFIG_ARCH_MSM7X25
 	msm_clock_init(msm_clocks_7x25, msm_num_clocks_7x25);
 #elif CONFIG_ARCH_MSM7X27
@@ -2203,6 +2250,8 @@ static void __init msm7x2x_init(void)
 	msm_serial_debug_init(MSM_UART3_PHYS, INT_UART3,
 			&msm_device_uart3.dev, 1);
 #endif
+
+#if defined(CONFIG_SMC91X)
 	if (machine_is_msm7x25_ffa() || machine_is_msm7x27_ffa()) {
 		smc91x_resources[0].start = 0x98000300;
 		smc91x_resources[0].end = 0x980003ff;
@@ -2218,6 +2267,7 @@ static void __init msm7x2x_init(void)
 				__func__);
 		}
 	}
+#endif
 
 	if (cpu_is_msm7x27())
 		msm7x2x_clock_data.max_axi_khz = 200000;
@@ -2278,6 +2328,9 @@ static void __init msm7x2x_init(void)
 		[MSM_PM_SLEEP_MODE_RAMP_DOWN_AND_WAIT_FOR_INTERRUPT].latency;
 	msm_device_gadget_peripheral.dev.platform_data = &msm_gadget_pdata;
 #endif
+#endif
+#if defined(CONFIG_TSIF) || defined(CONFIG_TSIF_MODULE)
+	msm_device_tsif.dev.platform_data = &tsif_platform_data;
 #endif
 
 	platform_add_devices(devices, ARRAY_SIZE(devices));
@@ -2405,13 +2458,22 @@ static void __init msm7x2x_map_io(void)
 	msm_map_common_io();
 	msm_msm7x2x_allocate_memory_regions();
 
+	if (socinfo_init() < 0)
+		BUG();
+
 #ifdef CONFIG_CACHE_L2X0
 	if (machine_is_msm7x27_surf() || machine_is_msm7x27_ffa()) {
 		/* 7x27 has 256KB L2 cache:
 			64Kb/Way and 4-Way Associativity;
-			R/W latency: 3 cycles;
 			evmon/parity/share disabled. */
-		l2x0_init(MSM_L2CC_BASE, 0x00068012, 0xfe000000);
+		if ((SOCINFO_VERSION_MAJOR(socinfo_get_version()) > 1)
+			|| ((SOCINFO_VERSION_MAJOR(socinfo_get_version()) == 1)
+			&& (SOCINFO_VERSION_MINOR(socinfo_get_version()) >= 3)))
+			/* R/W latency: 4 cycles; */
+			l2x0_init(MSM_L2CC_BASE, 0x0006801B, 0xfe000000);
+		else
+			/* R/W latency: 3 cycles; */
+			l2x0_init(MSM_L2CC_BASE, 0x00068012, 0xfe000000);
 	}
 #endif
 }

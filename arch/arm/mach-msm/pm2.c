@@ -338,7 +338,6 @@ mode_sysfs_add_cleanup:
 		kobject_put(msm_pm_mode_kobjs[i]);
 	}
 
-
 	return ret;
 }
 
@@ -1705,8 +1704,7 @@ static void msm_pm_power_off(void)
 		;
 }
 
-
-static void msm_pm_restart(char str)
+static void msm_pm_restart(char str, const char *cmd)
 {
 	msm_rpcrouter_close();
 #if defined(CONFIG_MACH_EUROPA) || defined(CONFIG_MACH_CALLISTO) || defined(CONFIG_MACH_CRONIN)

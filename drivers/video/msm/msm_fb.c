@@ -1499,8 +1499,7 @@ int msm_fb_resume_sw_refresher(struct msm_fb_data_type *mfd)
 	return 0;
 }
 
-//#ifdef CONFIG_FB_MSM_MDP31
-#if defined(CONFIG_FB_MSM_MDP31) || defined(CONFIG_FB_MSM_MDP30) 
+#if defined CONFIG_FB_MSM_MDP31
 static int mdp_blit_split_height(struct fb_info *info,
 				struct mdp_blit_req *req)
 {
@@ -1631,7 +1630,7 @@ static int mdp_blit_split_height(struct fb_info *info,
 int mdp_blit(struct fb_info *info, struct mdp_blit_req *req)
 {
 	int ret;
-#if defined(CONFIG_FB_MSM_MDP31) || defined(CONFIG_FB_MSM_MDP30) 
+#if defined CONFIG_FB_MSM_MDP31 || defined CONFIG_FB_MSM_MDP30
 	unsigned int remainder = 0, is_bpp_4 = 0;
 	struct mdp_blit_req splitreq;
 	int s_x_0, s_x_1, s_w_0, s_w_1, s_y_0, s_y_1, s_h_0, s_h_1;
@@ -1665,8 +1664,6 @@ int mdp_blit(struct fb_info *info, struct mdp_blit_req *req)
 #if defined CONFIG_FB_MSM_MDP31
 	/* MDP width split workaround */
 	remainder = (req->dst_rect.w)%32;
-        
-        /* QC_PATCH_6030 */
 	ret = mdp_get_bytes_per_pixel(req->dst.format);
 	if (ret <= 0) {
 		printk(KERN_ERR "mdp_ppp: incorrect bpp!\n");
@@ -1826,7 +1823,7 @@ int mdp_blit(struct fb_info *info, struct mdp_blit_req *req)
 	else
 		ret = mdp_ppp_blit(info, req);
 	return ret;
-#elif defined CONFIG_FB_MSM_MDP30  /* QC_PATCH_6030 */
+#elif defined CONFIG_FB_MSM_MDP30
 	/* MDP width split workaround */
 	remainder = (req->dst_rect.w)%16;
 	ret = mdp_get_bytes_per_pixel(req->dst.format);

@@ -207,7 +207,7 @@ static long snd_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		dmsg.args.cb_func = -1;
 		dmsg.args.client_data = 0;
 
-		MM_ERR("snd_set_device %d %d %d\n", dev.device,
+		MM_INFO("snd_set_device %d %d %d\n", dev.device,
 				dev.ear_mute, dev.mic_mute);
 
 		rc = msm_rpc_call(snd->ept,
@@ -234,7 +234,7 @@ static long snd_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		vmsg.args.cb_func = -1;
 		vmsg.args.client_data = 0;
 
-		MM_ERR("snd_set_volume %d %d %d\n", vol.device,
+		MM_INFO("snd_set_volume %d %d %d\n", vol.device,
 				vol.method, vol.volume);
 
 		rc = msm_rpc_call(snd->ept,
