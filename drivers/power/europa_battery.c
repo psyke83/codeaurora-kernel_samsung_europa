@@ -2902,11 +2902,6 @@ void msm_batt_late_resume(struct early_suspend *h)
 
 	rc = msm_batt_send_event(RESUME_EVENT);
 
-	if (msm_batt_info.chg_api_version >= CHARGER_API_VERSION)
-		msm_batt_update_psy_status_v1();
-	else
-		msm_batt_update_psy_status_v0();
-
 	printk(KERN_INFO "%s(): Handled Late resume event."
 	       " rc = %d\n", __func__, rc);
 }
