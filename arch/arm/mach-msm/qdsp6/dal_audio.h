@@ -268,6 +268,7 @@ struct adsp_device_switch_command {
 #define ADSP_PATH_RX	0
 #define ADSP_PATH_TX	1
 #define ADSP_PATH_BOTH	2
+#define ADSP_PATH_TX_CNG_DIS 3
 
 struct adsp_audio_dtmf_start_command {
 	struct adsp_command_hdr hdr;
@@ -606,5 +607,9 @@ struct adsp_buffer_event {
 #define ADSP_AUDIO_DEVICE_CONTEXT_MIXED_RECORD		0x10
 #define ADSP_AUDIO_DEVICE_CONTEXT_RECORD		0x20
 #define ADSP_AUDIO_DEVICE_CONTEXT_PCM_LOOPBACK		0x40
+
+/* ADSP audio driver return codes */
+#define ADSP_AUDIO_STATUS_SUCCESS               0
+#define ADSP_AUDIO_STATUS_EUNSUPPORTED          20
 
 #endif
