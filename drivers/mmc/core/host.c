@@ -195,7 +195,7 @@ int mmc_add_host(struct mmc_host *host)
 		return err;
 
 #ifdef CONFIG_DEBUG_FS
-//	mmc_add_host_debugfs(host);
+	mmc_add_host_debugfs(host);
 #endif
 	err = sysfs_create_group(&host->parent->kobj, &dev_attr_grp);
 	if (err)
@@ -224,7 +224,7 @@ void mmc_remove_host(struct mmc_host *host)
 	mmc_stop_host(host);
 
 #ifdef CONFIG_DEBUG_FS
-//	mmc_remove_host_debugfs(host);
+	mmc_remove_host_debugfs(host);
 #endif
 	sysfs_remove_group(&host->parent->kobj, &dev_attr_grp);
 

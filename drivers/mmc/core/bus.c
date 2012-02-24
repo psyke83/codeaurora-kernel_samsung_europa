@@ -260,7 +260,7 @@ int mmc_add_card(struct mmc_card *card)
 		return ret;
 
 #ifdef CONFIG_DEBUG_FS
-//	mmc_add_card_debugfs(card);
+	mmc_add_card_debugfs(card);
 #endif
 
 	mmc_card_set_present(card);
@@ -275,7 +275,7 @@ int mmc_add_card(struct mmc_card *card)
 void mmc_remove_card(struct mmc_card *card)
 {
 #ifdef CONFIG_DEBUG_FS
-//	mmc_remove_card_debugfs(card);
+	mmc_remove_card_debugfs(card);
 #endif
 
 	if (mmc_card_present(card)) {

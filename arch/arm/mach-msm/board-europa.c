@@ -21,7 +21,6 @@
 #include <linux/io.h>
 #include <linux/delay.h>
 #include <linux/bootmem.h>
-#include <linux/usb/mass_storage_function.h>
 #include <linux/power_supply.h>
 #include <linux/gpio_event.h>
 #include <linux/i2c-gpio.h>
@@ -51,7 +50,7 @@
 #include <mach/memory.h>
 #include <mach/msm_battery.h>
 #include <mach/rpc_server_handset.h>
-
+#include <mach/msm_tsif.h>
 
 #include <linux/mtd/nand.h>
 #include <linux/mtd/partitions.h>
@@ -69,6 +68,10 @@
 #include "pm.h"
 #ifdef CONFIG_ARCH_MSM7X27
 #include <linux/msm_kgsl.h>
+#endif
+
+#ifdef CONFIG_USB_ANDROID
+#include <linux/usb/android.h>
 #endif
 
 #ifdef CONFIG_SENSORS_BMA_ACCEL
@@ -98,7 +101,7 @@
 #define MSM_GPU_PHYS_SIZE	SZ_2M
 #define PMEM_KERNEL_EBI1_SIZE	0x1C000
 /* Using lower 1MB of OEMSBL memory for GPU_PHYS */
-#define MSM_GPU_PHYS_START_ADDR	 0xD600000ul
+#define MSM_GPU_PHYS_START_ADDR	 0xD700000ul
 #endif
 
 /* Using upper 1/2MB of Apps Bootloader memory*/
@@ -220,6 +223,19 @@ static struct usb_composition usb_func_composition[] = {
 		.adb_functions	    = 0x1243,
 	},
 };
+static struct usb_mass_storage_platform_data mass_storage_pdata = {
+	.nluns		= 1,
+	.vendor		= "GOOGLE",
+	.product	= "Mass Storage",
+	.release	= 0xFFFF,
+};
+static struct platform_device mass_storage_device = {
+	.name           = "usb_mass_storage",
+	.id             = -1,
+	.dev            = {
+		.platform_data          = &mass_storage_pdata,
+	},
+};
 static struct android_usb_platform_data android_usb_pdata = {
 //	.vendor_id	= 0x05C6,
 	.vendor_id	= 0x04E8, /* 0x04E8 is Samsung's vendor ID */
@@ -241,7 +257,6 @@ static struct android_usb_platform_data android_usb_pdata = {
 	.product_name	= "Qualcomm HSUSB Device",
 	.manufacturer_name = "Qualcomm Incorporated",
 #endif
-	.nluns = 1,
 	.self_powered = 1,
 };
 static struct platform_device android_usb_device = {
@@ -351,17 +366,9 @@ static int hsusb_rpc_connect(int connect)
 }
 #endif
 
-#if defined(CONFIG_USB_MSM_OTG_72K) || defined(CONFIG_USB_EHCI_MSM)
-static int msm_hsusb_rpc_phy_reset(void __iomem *addr)
-{
-	return msm_hsusb_phy_reset();
-}
-#endif
-
 #ifdef CONFIG_USB_MSM_OTG_72K
 static struct msm_otg_platform_data msm_otg_pdata = {
 	.rpc_connect	= hsusb_rpc_connect,
-	.phy_reset	= msm_hsusb_rpc_phy_reset,
 	.pmic_notif_init         = msm_pm_app_rpc_init,
 	.pmic_notif_deinit       = msm_pm_app_rpc_deinit,
 	.pmic_register_vbus_sn   = msm_pm_app_register_vbus_sn,
@@ -568,6 +575,7 @@ static struct platform_device android_pmem_kernel_ebi1_device = {
 
 static struct msm_handset_platform_data hs_platform_data = {
 	.hs_name = "7k_handset",
+	.pwr_key_delay_ms = 500, /* 0 will disable end key */
 };
 
 static struct platform_device hs_device = {
@@ -578,6 +586,30 @@ static struct platform_device hs_device = {
 	},
 };
 
+/* TSIF begin */
+#if defined(CONFIG_TSIF) || defined(CONFIG_TSIF_MODULE)
+
+#define TSIF_B_SYNC      GPIO_CFG(87, 5, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA)
+#define TSIF_B_DATA      GPIO_CFG(86, 3, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA)
+#define TSIF_B_EN        GPIO_CFG(85, 3, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA)
+#define TSIF_B_CLK       GPIO_CFG(84, 4, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA)
+
+static const struct msm_gpio tsif_gpios[] = {
+	{ .gpio_cfg = TSIF_B_CLK,  .label =  "tsif_clk", },
+	{ .gpio_cfg = TSIF_B_EN,   .label =  "tsif_en", },
+	{ .gpio_cfg = TSIF_B_DATA, .label =  "tsif_data", },
+	{ .gpio_cfg = TSIF_B_SYNC, .label =  "tsif_sync", },
+};
+
+static struct msm_tsif_platform_data tsif_platform_data = {
+	.num_gpios = ARRAY_SIZE(tsif_gpios),
+	.gpios = tsif_gpios,
+	.tsif_clk = "tsif_clk",
+	.tsif_pclk = "tsif_pclk",
+	.tsif_ref_clk = "tsif_ref_clk",
+};
+#endif /* defined(CONFIG_TSIF) || defined(CONFIG_TSIF_MODULE) */
+/* TSIF end   */
 
 #define LCDC_CONFIG_PROC          21
 #define LCDC_UN_CONFIG_PROC       22
@@ -682,36 +714,56 @@ static char *msm_fb_lcdc_vreg[] = {
 	"ldo3"
 };
 
-#define MSM_FB_LCDC_VREG_OP(name, op) \
-do { \
-	vreg = vreg_get(0, name); \
-	if (vreg_##op(vreg)) \
-		printk(KERN_ERR "%s: %s vreg operation failed \n", \
-			(vreg_##op == vreg_enable) ? "vreg_enable" \
-				: "vreg_disable", name); \
-} while (0)
-
-static void msm_fb_lcdc_power_save(int on)
+static int msm_fb_lcdc_power_save(int on)
 {
-	struct vreg *vreg;
-	int i;
+	struct vreg *vreg[ARRAY_SIZE(msm_fb_lcdc_vreg)];
+	int i, rc = 0;
 
 	for (i = 0; i < ARRAY_SIZE(msm_fb_lcdc_vreg); i++) {
 		if (on) {
-			MSM_FB_LCDC_VREG_OP(msm_fb_lcdc_vreg[i], enable);
-			vreg_set_level(vreg, OUT3000mV);
+			vreg[i] = vreg_get(0, msm_fb_lcdc_vreg[i]);
+			rc = vreg_enable(vreg[i]);
+			if (rc) {
+				printk(KERN_ERR "vreg_enable: %s vreg"
+						"operation failed \n",
+						msm_fb_lcdc_vreg[i]);
+				goto bail;
 			}
-		else{
-			MSM_FB_LCDC_VREG_OP(msm_fb_lcdc_vreg[i], disable);
-			// for avoiding potential rpc error
-			//gpio_tlmm_config(GPIO_CFG(GPIO_OUT_101, 0,
-			//GPIO_OUTPUT, GPIO_NO_PULL, GPIO_2MA), GPIO_ENABLE);
+		} else {
+			int tmp;
+			vreg[i] = vreg_get(0, msm_fb_lcdc_vreg[i]);
+			tmp = vreg_disable(vreg[i]);
+			if (tmp) {
+				printk(KERN_ERR "vreg_disable: %s vreg "
+						"operation failed \n",
+						msm_fb_lcdc_vreg[i]);
+				if (!rc)
+					rc = tmp;
+			}
+			tmp = gpio_tlmm_config(GPIO_CFG(GPIO_OUT_101, 0,
+						GPIO_OUTPUT, GPIO_NO_PULL,
+						GPIO_2MA), GPIO_ENABLE);
+			if (tmp) {
+				printk(KERN_ERR "gpio_tlmm_config failed\n");
+				if (!rc)
+					rc = tmp;
+			}
 			gpio_set_value(101, 0);
 			mdelay(15);
-			//gpio_set_value(101, 1);
-			//mdelay(15);
+			gpio_set_value(101, 1);
+			mdelay(15);
 		}
 	}
+
+	return rc;
+
+bail:
+	if (on) {
+		for (; i > 0; i--)
+			vreg_disable(vreg[i - 1]);
+	}
+
+	return rc;
 }
 static struct lcdc_platform_data lcdc_pdata = {
 	.lcdc_gpio_config = msm_fb_lcdc_config,
@@ -742,7 +794,6 @@ static int msm_fb_detect_panel(const char *name)
 	int ret = -EPERM;
 
 //	if (machine_is_msm7x25_ffa() || machine_is_msm7x27_ffa()) {
-//		if (!strcmp(name, "lcdc_gordon_vga"))
 		if (!strcmp(name, "lcdc_s6d04m0_qvga"))
 			ret = 0;
 		else
@@ -891,34 +942,6 @@ static void __init bt_power_init(void)
 {
 	msm_bt_power_device.dev.platform_data = &bluetooth_power;
 }
-
-static struct resource bluesleep_resources[] = {
-	{
-		.name	= "gpio_host_wake",
-		.start	= 20,
-		.end	= 20,
-		.flags	= IORESOURCE_IO,
-	},
-	{
-		.name	= "gpio_ext_wake",
-		.start	= 57,
-		.end	= 57,
-		.flags	= IORESOURCE_IO,
-	},
-	{
-		.name	= "host_wake",
-		.start	= MSM_GPIO_TO_INT(20),
-		.end	= MSM_GPIO_TO_INT(20),
-		.flags	= IORESOURCE_IRQ,
-	},
-};
-
-static struct platform_device msm_bluesleep_device = {
-	.name = "bluesleep",
-	.id		= -1,
-	.num_resources	= ARRAY_SIZE(bluesleep_resources),
-	.resource	= bluesleep_resources,
-};
 #else
 #define bt_power_init(x) do {} while (0)
 #endif
@@ -961,6 +984,34 @@ static struct platform_device msm_device_kgsl = {
 static struct platform_device msm_device_pmic_leds = {
 	.name   = "pmic-leds",
 	.id = -1,
+};
+
+static struct resource bluesleep_resources[] = {
+	{
+		.name	= "gpio_host_wake",
+		.start	= 20,
+		.end	= 20,
+		.flags	= IORESOURCE_IO,
+	},
+	{
+		.name	= "gpio_ext_wake",
+		.start	= 57,
+		.end	= 57,
+		.flags	= IORESOURCE_IO,
+	},
+	{
+		.name	= "host_wake",
+		.start	= MSM_GPIO_TO_INT(20),
+		.end	= MSM_GPIO_TO_INT(20),
+		.flags	= IORESOURCE_IRQ,
+	},
+};
+
+static struct platform_device msm_bluesleep_device = {
+	.name = "bluesleep",
+	.id		= -1,
+	.num_resources	= ARRAY_SIZE(bluesleep_resources),
+	.resource	= bluesleep_resources,
 };
 
 static struct i2c_board_info i2c_devices[] = {
@@ -1484,6 +1535,7 @@ static struct platform_device *devices[] __initdata = {
 #endif
 
 #ifdef CONFIG_USB_ANDROID
+	&mass_storage_device,
 	&android_usb_device,
 #endif
 	&msm_device_i2c,
@@ -1537,6 +1589,9 @@ static struct platform_device *devices[] __initdata = {
 #ifdef CONFIG_ARCH_MSM7X27
 	&msm_device_kgsl,
 #endif
+#if defined(CONFIG_TSIF) || defined(CONFIG_TSIF_MODULE)
+	&msm_device_tsif,
+#endif
 	&hs_device,
 	&msm_batt_device,
 	&msm_vibrator_device,
@@ -1562,7 +1617,7 @@ static void __init msm7x2x_init_irq(void)
 
 static struct msm_acpu_clock_platform_data msm7x2x_clock_data = {
 	.acpu_switch_time_us = 50,
-	.max_speed_delta_khz = 256000,
+	.max_speed_delta_khz = 400000,
 	.vdd_switch_time_us = 62,
 	.max_axi_khz = 160000,
 };
@@ -1581,7 +1636,6 @@ static void msm_hsusb_vbus_power(unsigned phy_info, int on)
 
 static struct msm_usb_host_platform_data msm_usb_host_pdata = {
 	.phy_info       = (USB_PHY_INTEGRATED | USB_PHY_MODEL_65NM),
-	.phy_reset = msm_hsusb_rpc_phy_reset,
 	.vbus_power = msm_hsusb_vbus_power,
 };
 static void __init msm7x2x_init_host(void)
@@ -1594,10 +1648,14 @@ static void __init msm7x2x_init_host(void)
 #endif
 
 
-#ifdef CONFIG_MMC
-static void sdcc_gpio_init(void)
-{
+#if (defined(CONFIG_MMC_MSM_SDC1_SUPPORT)\
+	|| defined(CONFIG_MMC_MSM_SDC2_SUPPORT)\
+	|| defined(CONFIG_MMC_MSM_SDC3_SUPPORT)\
+	|| defined(CONFIG_MMC_MSM_SDC4_SUPPORT))
+
 #ifdef CONFIG_MMC_MSM_CARD_HW_DETECTION
+static void sdcc_hwdetect(void)
+{
 	int rc = 0;
 	if (gpio_request(49, "sdc1_status_irq"))
 		pr_err("failed to request gpio sdc1_status_irq\n");
@@ -1606,137 +1664,109 @@ static void sdcc_gpio_init(void)
 	if (rc)
 		printk(KERN_ERR "%s: Failed to configure GPIO %d\n",
 				__func__, rc);
-#endif
-	/* SDC1 GPIOs */
-#ifdef CONFIG_MMC_MSM_SDC1_SUPPORT
-	if (gpio_request(51, "sdc1_data_3"))
-		pr_err("failed to request gpio sdc1_data_3\n");
-	if (gpio_request(52, "sdc1_data_2"))
-		pr_err("failed to request gpio sdc1_data_2\n");
-	if (gpio_request(53, "sdc1_data_1"))
-		pr_err("failed to request gpio sdc1_data_1\n");
-	if (gpio_request(54, "sdc1_data_0"))
-		pr_err("failed to request gpio sdc1_data_0\n");
-	if (gpio_request(55, "sdc1_cmd"))
-		pr_err("failed to request gpio sdc1_cmd\n");
-	if (gpio_request(56, "sdc1_clk"))
-		pr_err("failed to request gpio sdc1_clk\n");
-#endif
-	if (machine_is_msm7x25_ffa())
-		return;
-
-	/* SDC2 GPIOs */
-#ifdef CONFIG_MMC_MSM_SDC2_SUPPORT
-	if (gpio_request(62, "sdc2_clk"))
-		pr_err("failed to request gpio sdc2_clk\n");
-	if (gpio_request(63, "sdc2_cmd"))
-		pr_err("failed to request gpio sdc2_cmd\n");
-	if (gpio_request(64, "sdc2_data_3"))
-		pr_err("failed to request gpio sdc2_data_3\n");
-	if (gpio_request(65, "sdc2_data_2"))
-		pr_err("failed to request gpio sdc2_data_2\n");
-	if (gpio_request(66, "sdc2_data_1"))
-		pr_err("failed to request gpio sdc2_data_1\n");
-	if (gpio_request(67, "sdc2_data_0"))
-		pr_err("failed to request gpio sdc2_data_0\n");
-#endif
-	if (machine_is_msm7x27_ffa())
-		return;
-
-	/* SDC3 GPIOs */
-#ifdef CONFIG_MMC_MSM_SDC3_SUPPORT
-	if (gpio_request(88, "sdc3_clk"))
-		pr_err("failed to request gpio sdc3_clk\n");
-	if (gpio_request(89, "sdc3_cmd"))
-		pr_err("failed to request gpio sdc3_cmd\n");
-	if (gpio_request(90, "sdc3_data_3"))
-		pr_err("failed to request gpio sdc3_data_3\n");
-	if (gpio_request(91, "sdc3_data_2"))
-		pr_err("failed to request gpio sdc3_data_2\n");
-	if (gpio_request(92, "sdc3_data_1"))
-		pr_err("failed to request gpio sdc3_data_1\n");
-	if (gpio_request(93, "sdc3_data_0"))
-		pr_err("failed to request gpio sdc3_data_0\n");
-#endif
-
-	/* SDC4 GPIOs */
-#ifdef CONFIG_MMC_MSM_SDC4_SUPPORT
-	if (gpio_request(19, "sdc4_data_3"))
-		pr_err("failed to request gpio sdc4_data_3\n");
-	if (gpio_request(20, "sdc4_data_2"))
-		pr_err("failed to request gpio sdc4_data_2\n");
-	if (gpio_request(21, "sdc4_data_1"))
-		pr_err("failed to request gpio sdc4_data_1\n");
-	if (gpio_request(107, "sdc4_cmd"))
-		pr_err("failed to request gpio sdc4_cmd\n");
-	if (gpio_request(108, "sdc4_data_0"))
-		pr_err("failed to request gpio sdc4_data_0\n");
-	if (gpio_request(109, "sdc4_clk"))
-		pr_err("failed to request gpio sdc4_clk\n");
-#endif
 }
-
-static unsigned sdcc_cfg_data[][6] = {
-	/* SDC1 configs */
-	{
-	GPIO_CFG(51, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_8MA),
-	GPIO_CFG(52, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_8MA),
-	GPIO_CFG(53, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_8MA),
-	GPIO_CFG(54, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_8MA),
-	GPIO_CFG(55, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_8MA),
-	GPIO_CFG(56, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_8MA),
-	},
-	/* SDC2 configs */
-	{
-	GPIO_CFG(62, 2, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_8MA),
-	GPIO_CFG(63, 2, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA),
-	GPIO_CFG(64, 2, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA),
-	GPIO_CFG(65, 2, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA),
-	GPIO_CFG(66, 2, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA),
-	GPIO_CFG(67, 2, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA),
-	},
-	/* SDC3 configs */
-	{
-	GPIO_CFG(88, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_8MA),
-	GPIO_CFG(89, 1, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA),
-	GPIO_CFG(90, 1, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA),
-	GPIO_CFG(91, 1, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA),
-	GPIO_CFG(92, 1, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA),
-	GPIO_CFG(93, 1, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA),
-	},
-	/* SDC4 configs */
-	{
-	GPIO_CFG(19, 3, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA),
-	GPIO_CFG(20, 3, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA),
-	GPIO_CFG(21, 4, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA),
-	GPIO_CFG(107, 1, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA),
-	GPIO_CFG(108, 1, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA),
-	GPIO_CFG(109, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_8MA),
-	}
-};
+#endif
 
 static unsigned long vreg_sts, gpio_sts;
-static unsigned mpp_mmc = 2;
 static struct vreg *vreg_mmc;
+static unsigned mpp_mmc = 2;
+
+struct sdcc_gpio {
+	struct msm_gpio *cfg_data;
+	uint32_t size;
+	struct msm_gpio *sleep_cfg_data;
+};
+
+static struct msm_gpio sdc1_cfg_data[] = {
+	{GPIO_CFG(51, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_8MA), "sdc1_dat_3"},
+	{GPIO_CFG(52, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_8MA), "sdc1_dat_2"},
+	{GPIO_CFG(53, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_8MA), "sdc1_dat_1"},
+	{GPIO_CFG(54, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_8MA), "sdc1_dat_0"},
+	{GPIO_CFG(55, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_8MA), "sdc1_cmd"},
+	{GPIO_CFG(56, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_8MA), "sdc1_clk"},
+};
+
+static struct msm_gpio sdc2_cfg_data[] = {
+	{GPIO_CFG(62, 2, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_8MA), "sdc2_clk"},
+	{GPIO_CFG(63, 2, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA), "sdc2_cmd"},
+	{GPIO_CFG(64, 2, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA), "sdc2_dat_3"},
+	{GPIO_CFG(65, 2, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA), "sdc2_dat_2"},
+	{GPIO_CFG(66, 2, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA), "sdc2_dat_1"},
+	{GPIO_CFG(67, 2, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA), "sdc2_dat_0"},
+};
+
+static struct msm_gpio sdc2_sleep_cfg_data[] = {
+	{GPIO_CFG(62, 0, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA), "sdc2_clk"},
+	{GPIO_CFG(63, 0, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA), "sdc2_cmd"},
+	{GPIO_CFG(64, 0, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA), "sdc2_dat_3"},
+	{GPIO_CFG(65, 0, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA), "sdc2_dat_2"},
+	{GPIO_CFG(66, 0, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA), "sdc2_dat_1"},
+	{GPIO_CFG(67, 0, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA), "sdc2_dat_0"},
+};
+static struct msm_gpio sdc3_cfg_data[] = {
+	{GPIO_CFG(88, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_8MA), "sdc3_clk"},
+	{GPIO_CFG(89, 1, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA), "sdc3_cmd"},
+	{GPIO_CFG(90, 1, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA), "sdc3_dat_3"},
+	{GPIO_CFG(91, 1, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA), "sdc3_dat_2"},
+	{GPIO_CFG(92, 1, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA), "sdc3_dat_1"},
+	{GPIO_CFG(93, 1, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA), "sdc3_dat_0"},
+};
+
+static struct msm_gpio sdc4_cfg_data[] = {
+	{GPIO_CFG(19, 3, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA), "sdc4_dat_3"},
+	{GPIO_CFG(20, 3, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA), "sdc4_dat_2"},
+	{GPIO_CFG(21, 4, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA), "sdc4_dat_1"},
+	{GPIO_CFG(107, 1, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA), "sdc4_cmd"},
+	{GPIO_CFG(108, 1, GPIO_OUTPUT, GPIO_PULL_UP, GPIO_8MA), "sdc4_dat_0"},
+	{GPIO_CFG(109, 1, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_8MA), "sdc4_clk"},
+};
+
+static struct sdcc_gpio sdcc_cfg_data[] = {
+	{
+		.cfg_data = sdc1_cfg_data,
+		.size = ARRAY_SIZE(sdc1_cfg_data),
+		.sleep_cfg_data = NULL,
+	},
+	{
+		.cfg_data = sdc2_cfg_data,
+		.size = ARRAY_SIZE(sdc2_cfg_data),
+		.sleep_cfg_data = sdc2_sleep_cfg_data,
+	},
+	{
+		.cfg_data = sdc3_cfg_data,
+		.size = ARRAY_SIZE(sdc3_cfg_data),
+		.sleep_cfg_data = NULL,
+	},
+	{
+		.cfg_data = sdc4_cfg_data,
+		.size = ARRAY_SIZE(sdc4_cfg_data),
+		.sleep_cfg_data = NULL,
+	},
+};
 
 static void msm_sdcc_setup_gpio(int dev_id, unsigned int enable)
 {
-	int i, rc;
+	int rc = 0;
+	struct sdcc_gpio *curr;
 
+	curr = &sdcc_cfg_data[dev_id - 1];
 	if (!(test_bit(dev_id, &gpio_sts)^enable))
 		return;
 
-	if (enable)
+	if (enable) {
 		set_bit(dev_id, &gpio_sts);
-	else
-		clear_bit(dev_id, &gpio_sts);
-
-	for (i = 0; i < ARRAY_SIZE(sdcc_cfg_data[dev_id - 1]); i++) {
-		rc = gpio_tlmm_config(sdcc_cfg_data[dev_id - 1][i],
-			enable ? GPIO_ENABLE : GPIO_DISABLE);
+		rc = msm_gpios_request_enable(curr->cfg_data, curr->size);
 		if (rc)
-			printk(KERN_ERR "%s: gpio_tlmm_config(%#x)=%d\n",
-				__func__, sdcc_cfg_data[dev_id - 1][i], rc);
+			printk(KERN_ERR "%s: Failed to turn on GPIOs for slot %d\n",
+				__func__,  dev_id);
+	} else {
+		clear_bit(dev_id, &gpio_sts);
+		if (curr->sleep_cfg_data) {
+			msm_gpios_enable(curr->sleep_cfg_data, curr->size);
+			msm_gpios_free(curr->sleep_cfg_data, curr->size);
+			return;
+		}
+		msm_gpios_disable_free(curr->cfg_data, curr->size);
 	}
 }
 
@@ -1747,9 +1777,6 @@ static uint32_t msm_sdcc_setup_power(struct device *dv, unsigned int vdd)
 
 	pdev = container_of(dv, struct platform_device, dev);
 	msm_sdcc_setup_gpio(pdev->id, !!vdd);
-
-	if (pdev->id != 1)
-		return 0;
 
 	if (vdd == 0) {
 		if (!vreg_sts)
@@ -1994,13 +2021,13 @@ static struct mmc_platform_data msm7x2x_sdc1_data = {
 	.status_irq	= MSM_GPIO_TO_INT(49),
 	.irq_flags      = IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
 #endif
-#if 1 /* ATHEROS */
+	.msmsdcc_fmin	= 144000,
+	.msmsdcc_fmid	= 24576000,
+	.msmsdcc_fmax	= 49152000,
+	.nonremovable	= 0,
+#ifdef CONFIG_MMC_MSM_SDC1_DUMMY52_REQUIRED
 	.dummy52_required = 1,
-#endif /* ATHEROS */
-	.msmsdcc_fmin   = 144000,
-	.msmsdcc_fmid   = 24576000,
-	.msmsdcc_fmax   = 49152000,
-	.nonremovable   = 0,
+#endif
 };
 #endif
 
@@ -2013,11 +2040,13 @@ static struct mmc_platform_data msm7x2x_sdc2_data = {
 	.status = wlan_status,
 	.register_status_notify	= register_wlan_status_notify,
 #endif /* ATH_POLLING */
+	.msmsdcc_fmin	= 144000,
+	.msmsdcc_fmid	= 24576000,
+	.msmsdcc_fmax	= 49152000,
+	.nonremovable	= 0,
+#ifdef CONFIG_MMC_MSM_SDC2_DUMMY52_REQUIRED
 	.dummy52_required = 1,
-	.msmsdcc_fmin   = 144000,
-	.msmsdcc_fmid   = 24576000,
-	.msmsdcc_fmax   = 49152000,
-	.nonremovable   = 0,
+#endif
 };
 #endif
 
@@ -2026,6 +2055,13 @@ static struct mmc_platform_data msm7x2x_sdc3_data = {
 	.ocr_mask	= MMC_VDD_28_29,
 	.translate_vdd	= msm_sdcc_setup_power,
 	.mmc_bus_width  = MMC_CAP_4_BIT_DATA,
+	.msmsdcc_fmin	= 144000,
+	.msmsdcc_fmid	= 24576000,
+	.msmsdcc_fmax	= 49152000,
+	.nonremovable	= 0,
+#ifdef CONFIG_MMC_MSM_SDC3_DUMMY52_REQUIRED
+	.dummy52_required = 1,
+#endif
 };
 #endif
 
@@ -2034,6 +2070,13 @@ static struct mmc_platform_data msm7x2x_sdc4_data = {
 	.ocr_mask	= MMC_VDD_28_29,
 	.translate_vdd	= msm_sdcc_setup_power,
 	.mmc_bus_width  = MMC_CAP_4_BIT_DATA,
+	.msmsdcc_fmin	= 144000,
+	.msmsdcc_fmid	= 24576000,
+	.msmsdcc_fmax	= 49152000,
+	.nonremovable	= 0,
+#ifdef CONFIG_MMC_MSM_SDC4_DUMMY52_REQUIRED
+	.dummy52_required = 1,
+#endif
 };
 #endif
 
@@ -2048,7 +2091,7 @@ static void __init msm7x2x_init_mmc(void)
 		}
 	}
 
-	sdcc_gpio_init();
+	sdcc_hwdetect();
 #ifdef CONFIG_MMC_MSM_SDC1_SUPPORT
 	msm_add_sdcc(1, &msm7x2x_sdc1_data);
 #endif
@@ -2056,6 +2099,7 @@ static void __init msm7x2x_init_mmc(void)
 	if (machine_is_msm7x25_surf() || machine_is_msm7x27_surf() ||
 		machine_is_msm7x27_ffa()) {
 #ifdef CONFIG_MMC_MSM_SDC2_SUPPORT
+		msm_sdcc_setup_gpio(2, 1);
 		msm_add_sdcc(2, &msm7x2x_sdc2_data);
 #endif
 	}
@@ -2174,11 +2218,11 @@ static void usb_mpp_init(void)
 
 	if (machine_is_msm7x25_ffa() || machine_is_msm7x27_ffa()) {
 		rc = mpp_config_digital_out(mpp_usb,
-				MPP_CFG(MPP_DLOGIC_LVL_VDD,
-					MPP_DLOGIC_OUT_CTRL_HIGH));
+			MPP_CFG(MPP_DLOGIC_LVL_VDD,
+				MPP_DLOGIC_OUT_CTRL_HIGH));
 		if (rc)
 			pr_err("%s: configuring mpp pin"
-					"to enable 3.3V LDO failed\n", __func__);
+				"to enable 3.3V LDO failed\n", __func__);
 	}
 }
 
@@ -2188,10 +2232,7 @@ extern int arm9_uses_uart3;
 
 static void __init msm7x2x_init(void)
 {
-	int ret = 0;
 
-	if (socinfo_init() < 0)
-		BUG();
 #ifdef CONFIG_ARCH_MSM7X25
 	msm_clock_init(msm_clocks_7x25, msm_num_clocks_7x25);
 #elif CONFIG_ARCH_MSM7X27
@@ -2203,6 +2244,8 @@ static void __init msm7x2x_init(void)
 	msm_serial_debug_init(MSM_UART3_PHYS, INT_UART3,
 			&msm_device_uart3.dev, 1);
 #endif
+
+#if defined(CONFIG_SMC91X)
 	if (machine_is_msm7x25_ffa() || machine_is_msm7x27_ffa()) {
 		smc91x_resources[0].start = 0x98000300;
 		smc91x_resources[0].end = 0x980003ff;
@@ -2218,6 +2261,7 @@ static void __init msm7x2x_init(void)
 				__func__);
 		}
 	}
+#endif
 
 	if (cpu_is_msm7x27())
 		msm7x2x_clock_data.max_axi_khz = 200000;
@@ -2278,6 +2322,9 @@ static void __init msm7x2x_init(void)
 		[MSM_PM_SLEEP_MODE_RAMP_DOWN_AND_WAIT_FOR_INTERRUPT].latency;
 	msm_device_gadget_peripheral.dev.platform_data = &msm_gadget_pdata;
 #endif
+#endif
+#if defined(CONFIG_TSIF) || defined(CONFIG_TSIF_MODULE)
+	msm_device_tsif.dev.platform_data = &tsif_platform_data;
 #endif
 
 	platform_add_devices(devices, ARRAY_SIZE(devices));
@@ -2370,11 +2417,12 @@ static void __init msm_msm7x2x_allocate_memory_regions(void)
 			"pmem arena\n", size, addr, __pa(addr));
 	}
 
-	size = MSM_PMEM_AUDIO_SIZE;
-	android_pmem_audio_pdata.start =  0x80000 ;
+	size = MSM_PMEM_AUDIO_SIZE ;
+	android_pmem_audio_pdata.start = MSM_PMEM_AUDIO_START_ADDR ;
 	android_pmem_audio_pdata.size = size;
-	pr_info("allocating %lu bytes at (0x80000 physical) for audio "
-			"pmem arena\n", size);
+	pr_info("allocating %lu bytes (at %lx physical) for audio "
+		"pmem arena\n", size , MSM_PMEM_AUDIO_START_ADDR);
+
 	size = fb_size ? : MSM_FB_SIZE;
 	addr = alloc_bootmem(size);
 	msm_fb_resources[0].start = __pa(addr);
@@ -2392,9 +2440,10 @@ static void __init msm_msm7x2x_allocate_memory_regions(void)
 	}
 #ifdef CONFIG_ARCH_MSM7X27
 	size = MSM_GPU_PHYS_SIZE;
-	kgsl_resources[1].start = 0xD700000;
+	kgsl_resources[1].start = MSM_GPU_PHYS_START_ADDR ;
 	kgsl_resources[1].end = kgsl_resources[1].start + size - 1;
-	pr_info("allocating %lu bytes at (0xD700000 physical) for KGSL\n", size );
+	pr_info("allocating %lu bytes (at %lx physical) for KGSL\n",
+		size , MSM_GPU_PHYS_START_ADDR);
 
 #endif
 
@@ -2405,13 +2454,22 @@ static void __init msm7x2x_map_io(void)
 	msm_map_common_io();
 	msm_msm7x2x_allocate_memory_regions();
 
+	if (socinfo_init() < 0)
+		BUG();
+
 #ifdef CONFIG_CACHE_L2X0
 	if (machine_is_msm7x27_surf() || machine_is_msm7x27_ffa()) {
 		/* 7x27 has 256KB L2 cache:
 			64Kb/Way and 4-Way Associativity;
-			R/W latency: 3 cycles;
 			evmon/parity/share disabled. */
-		l2x0_init(MSM_L2CC_BASE, 0x00068012, 0xfe000000);
+		if ((SOCINFO_VERSION_MAJOR(socinfo_get_version()) > 1)
+			|| ((SOCINFO_VERSION_MAJOR(socinfo_get_version()) == 1)
+			&& (SOCINFO_VERSION_MINOR(socinfo_get_version()) >= 3)))
+			/* R/W latency: 4 cycles; */
+			l2x0_init(MSM_L2CC_BASE, 0x0006801B, 0xfe000000);
+		else
+			/* R/W latency: 3 cycles; */
+			l2x0_init(MSM_L2CC_BASE, 0x00068012, 0xfe000000);
 	}
 #endif
 }

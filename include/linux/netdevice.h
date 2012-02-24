@@ -750,7 +750,7 @@ struct net_device
 	struct iw_public_data *	wireless_data;
 #endif
 	/* Management operations */
-	struct net_device_ops *netdev_ops;
+	const struct net_device_ops *netdev_ops;
 	const struct ethtool_ops *ethtool_ops;
 
 	/* Hardware header description */

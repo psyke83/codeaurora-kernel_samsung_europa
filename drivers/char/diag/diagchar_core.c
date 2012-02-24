@@ -210,13 +210,13 @@ static int diagchar_ioctl(struct inode *inode, struct file *filp,
 			if (driver->table[i].process_id == 0) {
 				success = 1;
 				driver->table[i].cmd_code =
-					 pkt_params->params->cmd_code;
+					pkt_params->params->cmd_code;
 				driver->table[i].subsys_id =
-					 pkt_params->params->subsys_id;
+					pkt_params->params->subsys_id;
 				driver->table[i].cmd_code_lo =
-					 pkt_params->params->cmd_code_hi;
+					pkt_params->params->cmd_code_hi;
 				driver->table[i].cmd_code_hi =
-					 pkt_params->params->cmd_code_lo;
+					pkt_params->params->cmd_code_lo;
 				driver->table[i].process_id = current->tgid;
 				count_entries++;
 				if (pkt_params->count > count_entries)

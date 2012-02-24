@@ -480,8 +480,6 @@ struct msm_snapshot_pp_status {
 #define CAMERA_EFFECT_AQUA		8
 #define CAMERA_EFFECT_MAX		9
 
-
-
 struct sensor_pict_fps {
 	uint16_t prevfps;
 	uint16_t pictfps;

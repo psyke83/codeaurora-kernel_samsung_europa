@@ -221,8 +221,7 @@ static int  android_bind_config(struct usb_configuration *c)
 				return ret;
 			break;
 		case ANDROID_MSC:
-			ret = mass_storage_function_add(dev->cdev, c,
-								dev->nluns);
+			ret = mass_storage_function_add(dev->cdev, c);
 			if (ret)
 				return ret;
 			break;
