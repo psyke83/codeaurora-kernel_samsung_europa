@@ -46,6 +46,7 @@ Module.symvers
 # Generated include files
 #
 include/asm
+include/asm-arm
 include/asm-*/asm-offsets.h
 include/config
 include/linux/autoconf.h
@@ -54,6 +55,9 @@ include/linux/version.h
 include/linux/utsrelease.h
 include/linux/bounds.h
 include/generated
+
+# misc 
+arch/arm/mach-msm/smd_rpc_sym.c
 
 # stgit generated dirs
 patches-*
