@@ -1100,11 +1100,11 @@ int calculate_batt_level(int batt_volt)
 {
 	int scaled_level = 0;
 
-	if(batt_volt >= BATT_FULL_VOLT) //99%
+	if(batt_volt >= BATT_FULL_VOLT) //99% ?
 	{
-		scaled_level = 99;
+		scaled_level = 100;
 	}
-	else if(batt_volt >=  BATT_LEVEL6_VOLT) //99% ~ 90%
+	else if(batt_volt >=  BATT_LEVEL6_VOLT) //99% ~ 90% ?
 	{
 		scaled_level = ((batt_volt -BATT_LEVEL6_VOLT)*9)/(BATT_FULL_VOLT-BATT_LEVEL6_VOLT);
  		scaled_level = scaled_level+90;
