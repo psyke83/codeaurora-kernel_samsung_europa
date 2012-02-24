@@ -29,7 +29,7 @@
 #include <linux/i2c/europa_tsp_gpio.h>
 
 #define FIRM_TEST 0
-#define DEBUG_INPUT_REPORT
+//#define DEBUG_INPUT_REPORT
 
 /* firmware - update */
 #if FIRM_TEST
