@@ -112,7 +112,6 @@ struct android_dev {
 	int version;
 
 	int adb_enabled;
-	int nluns;
 	struct mutex lock;
 	struct android_usb_platform_data *pdata;
 	unsigned long functions;
@@ -788,8 +787,7 @@ static int __init android_probe(struct platform_device *pdev)
 		}
 	}
 	strcpy(serial_number, strings_dev[STRING_SERIAL_IDX].s);
-	
-	dev->nluns = pdata->nluns;
+
 	dev->pdata = pdata;
 
 	ret = sysfs_create_group(&pdev->dev.kobj, &android_attr_grp);
