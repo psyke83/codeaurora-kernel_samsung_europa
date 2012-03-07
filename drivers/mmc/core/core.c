@@ -41,6 +41,8 @@
 static struct workqueue_struct *workqueue;
 static struct wake_lock mmc_delayed_work_wake_lock;
 
+#define ATH_PATCH 1
+
 /*
  * Enabling software CRCs on the data blocks can be a significant (30%)
  * performance cost, and for other reasons may not always be desired.
@@ -1318,6 +1320,10 @@ int mmc_suspend_host(struct mmc_host *host, pm_message_t state)
 	if (!err && !(host->pm_flags & MMC_PM_KEEP_POWER))
 		mmc_power_off(host);
 
+#ifdef ATH_PATCH
+	if (err == -EBUSY)
+		err = 0;
+#endif /* ATH_PATCH */
 	return err;
 }
 
@@ -1339,7 +1345,11 @@ int mmc_resume_host(struct mmc_host *host)
 	}
 
 	if (host->bus_ops && !host->bus_dead) {
+#ifdef ATH_PATCH	
+		if (!host->suspend_keep_power) {
+#else
 		if (!(host->pm_flags & MMC_PM_KEEP_POWER)) {
+#endif /* ATH_PATCH */
 			mmc_power_up(host);
 			mmc_select_voltage(host, host->ocr);
 		}
@@ -1358,6 +1368,9 @@ int mmc_resume_host(struct mmc_host *host)
 	 * We add a slight delay here so that resume can progress
 	 * in parallel.
 	 */
+#ifdef ATH_PATCH	
+	if (!host->card || host->card->type != MMC_TYPE_SDIO)
+#endif /* ATH_PATCH */
 	mmc_detect_change(host, 1);
 
 	return err;

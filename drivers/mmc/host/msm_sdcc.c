@@ -52,6 +52,8 @@
 
 #include "msm_sdcc.h"
 
+#define ATH_PATCH 1
+
 #define DRIVER_NAME "msm-sdcc"
 
 #define DBG(host, fmt, args...)	\
@@ -1302,10 +1304,30 @@ set_polling(struct device *dev, struct device_attribute *attr,
 	return count;
 }
 
+/* ATHENV +++ */
+static ssize_t
+set_detect_change(struct device *dev, struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	struct mmc_host *mmc = dev_get_drvdata(dev);
+	struct msmsdcc_host *host = mmc_priv(mmc);
+	int value;
+	if (sscanf(buf, "%d", &value)==1 && value) {
+        mmc_detect_change(host->mmc, 0);
+    }
+	return count;
+}
+static DEVICE_ATTR(detect_change, S_IRUGO | S_IWUSR,
+		NULL, set_detect_change);
+/* ATHENV --- */
+
 static DEVICE_ATTR(polling, S_IRUGO | S_IWUSR,
 		show_polling, set_polling);
 static struct attribute *dev_attrs[] = {
 	&dev_attr_polling.attr,
+/* ATHENV +++ */
+    &dev_attr_detect_change.attr,
+/* ATHENV --- */
 	NULL,
 };
 static struct attribute_group dev_attr_grp = {
@@ -1763,12 +1785,20 @@ msmsdcc_suspend(struct platform_device *dev, pm_message_t state)
 	if (mmc) {
 		if (host->plat->status_irq)
 			disable_irq(host->plat->status_irq);
+#ifdef ATH_PATCH /* ATHENV+++ */
+		rc = mmc_suspend_host(mmc, state);
+		if (rc!=0) {
+			if (host->plat->status_irq)
+				enable_irq(host->plat->status_irq);
+		}
+#else
 		host->sdcc_suspending = 1;
 
 		if (!mmc->card || (host->plat->sdiowakeup_irq &&
 				mmc->card->type == MMC_TYPE_SDIO) ||
 				mmc->card->type != MMC_TYPE_SDIO)
 			rc = mmc_suspend_host(mmc, state);
+#endif /* ATHENV--- */
 		if (!rc) {
 			writel(0, host->base + MMCIMASK0);
 
@@ -1826,9 +1856,13 @@ msmsdcc_resume(struct platform_device *dev)
 		}
 
 		spin_unlock_irqrestore(&host->lock, flags);
+#ifdef ATH_PATCH /* ATHENV+++ */
+		if (1)
+#else
 		if (!mmc->card || (host->plat->sdiowakeup_irq &&
 				mmc->card->type == MMC_TYPE_SDIO) ||
 				mmc->card->type != MMC_TYPE_SDIO)
+#endif /* ATHENV--- */
 			mmc_resume_host(mmc);
 		if (host->plat->status_irq)
 			enable_irq(host->plat->status_irq);
