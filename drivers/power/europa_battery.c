@@ -1017,12 +1017,12 @@ extern int fsa9280_i2c_read(unsigned char u_addr, unsigned char *pu_data);
 #define FSA_DTYPE2 	0x0B
 
 #define BATT_LOW_VOLT		3400
-#define BATT_LEVEL1_VOLT	3600
-#define BATT_LEVEL2_VOLT	3640
-#define BATT_LEVEL3_VOLT	3700
-#define BATT_LEVEL4_VOLT	3760
-#define BATT_LEVEL5_VOLT	3860
-#define BATT_LEVEL6_VOLT	3990
+#define BATT_LEVEL1_VOLT	3440
+#define BATT_LEVEL2_VOLT	3520
+#define BATT_LEVEL3_VOLT	3640
+#define BATT_LEVEL4_VOLT	3800
+#define BATT_LEVEL5_VOLT	3960
+#define BATT_LEVEL6_VOLT	4120
 #define BATT_FULL_VOLT		4200
 
 #define BATT_LOW_ADC		2225//2158
